@@ -1,0 +1,411 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{07}
+\renewcommand{\courseDayInt}{7}
+\renewcommand{\courseShort}{BUG CATALOG}
+\renewcommand{\courseTitle}{The Bug\\Catalog}
+\renewcommand{\courseSubtitle}{The planted bugs you must recognize on sight.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Bug recognition}
+\renewcommand{\courseFolder}{day07\_bug\_catalog}
+\renewcommand{\courseEyebrow}{DAY 07\enspace\textcolor{rule}{\textperiodcentered}\enspace BUG CATALOG}
+\renewcommand{\courseTopics}{\topic{Boundaries}\topic{Logic}\topic{Objects}\topic{Bytes}}
+\renewcommand{\courseNext}{Turn the page to Day 8.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Recognise the bugs that get planted in “broken implementation” exercises \emph{on sight}. Planted bugs are usually \textbf{one-token or one-line changes} that are easy to miss when you read: \code{\textless{}\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}, \code{i+1} vs \code{i}, a missing \code{.lower(\allowbreak{})\allowbreak{}}, the wrong variable, a swapped argument. Train your eyes to see them.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Recognise the bugs that get planted in “broken implementation” exercises \emph{on sight}. Planted bugs are usually \textbf{one-token or one-line changes} that are easy to miss when you read: \code{\textless{}\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}, \code{i+1} vs \code{i}, a missing \code{.lower(\allowbreak{})\allowbreak{}}, the wrong variable, a swapped argument. Train your eyes to see them.
+\end{goalbox}
+\vspace{2pt}
+\begin{tipbox}[How to use this catalog]
+Read the catalog, then do the bug hunts. When you finish, add your own entries to your \code{bug\_journal.md}.
+\end{tipbox}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why a catalog works}
+Put yourself in the shoes of the person who prepares the exam. They start from a correct program and want to break it in a way that is \emph{subtle}: the code should still look reasonable, still run, and still give the right answer on most inputs, failing only on particular tests. If they rewrote whole functions, the bugs would be obvious. So instead they make tiny edits: flip a comparison, shift an index by one, use the neighbouring variable, drop a copy, swap two arguments.
+There are only so many tiny edits that produce a believable bug, so the same few dozen patterns come up again and again. This catalog collects them. Once you know them, reading broken code stops being “stare until something looks odd” and becomes a targeted search: on each line you ask, “is this one of the known patterns?”.
+Many entries repeat traps from Days 1–6. That’s deliberate. This is the one place where they’re all gathered together, grouped by \emph{where} in the code they live. Each entry has a code (A1, B2, ...), and the exercises ask you to write that code next to each fix you make. That habit is what turns the catalog into a reflex.
+\Needspace{10\baselineskip}
+\unnumberedsection{A. Boundaries and indices (the \#1 category)}
+\textbf{Where they live:} every loop, every \code{range}, every slice and every index has a start and an end, and each end can be off by one: included when it should be excluded, or the reverse. These bugs are the most common of all because they’re literally one character (\code{\textless{}\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}, \code{+\ 1} or nothing), and the code still runs.
+\textbf{What they look like in test results:} an \code{IndexError} at the end of the input; a result missing its first or last element; a number that’s off by exactly one; or failures only on the edge cases, i.e. an empty input, a single element, or a value exactly at a limit.
+\textbf{How to check:} list every boundary in the function, and compare each one with the spec’s wording. “Up to and including”, “at most”, “strictly greater”, “the last one”...
+\textbf{A1 — \code{range} stops one too early.} \code{range(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} never includes \code{b}. If the spec says “from 1 to n”, the code needs \code{range(\allowbreak{}1,\allowbreak{}\ n\ +\ 1)\allowbreak{}}.
+\Needspace{2\baselineskip}
+\begin{pycode}
+def sum_to(n):
+    """Sum of 1..n inclusive."""
+    return sum(range(1, n))        # BUG: misses n; sum_to(3) gives 3 instead of 6
+\end{pycode}
+\textbf{A2 — \code{\textless{}\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}.} Whether a comparison includes equality changes the result exactly at the boundary. Typical places are binary search loops (\code{while\ lo\ \textless{}\allowbreak{}\ hi} vs \code{while\ lo\ \textless{}\allowbreak{}=\allowbreak{}\ hi}, explained at the end of this document) and interval checks: do \code{[1,\allowbreak{}\ 3]} and \code{[3,\allowbreak{}\ 5]} overlap? With \code{start\ \textless{}\allowbreak{}\ end} they don’t, and with \code{start\ \textless{}\allowbreak{}=\allowbreak{}\ end} they do. Only the spec can tell you which is right.
+\textbf{A3 — reading one past the end.} Code that compares each item with the next one must stop one position early, because the last item has no “next”:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for i in range(len(x)):
+    if x[i] == x[i + 1]:          # BUG: IndexError when i is the last position
+        ...
+for i in range(len(x) - 1):       # correct
+\end{pycode}
+\textbf{A4 — skipping the last pair.} The opposite mistake: stopping \emph{two} early. With pairs \code{(\allowbreak{}i,\allowbreak{}\ i+1)\allowbreak{}}, the last pair starts at \code{len(\allowbreak{}x)\allowbreak{}\ -\ 2}, so the loop must be \code{range(\allowbreak{}len(\allowbreak{}x)\allowbreak{}\ -\ 1)\allowbreak{}}. \code{range(\allowbreak{}len(\allowbreak{}x)\allowbreak{}\ -\ 2)\allowbreak{}} silently ignores the final pair. No crash, just a missing result.
+\textbf{A5 — forgetting the leftovers after a loop.} Many loops collect items and only \emph{emit} them when something changes, for example “when the next character is different, output the run so far”. The very last item is never followed by a change, so it has to be emitted after the loop:
+\Needspace{10\baselineskip}
+\begin{pycode}
+def runs(s):
+    """'aabccc' -> ['aa', 'b', 'ccc']"""
+    out, current = [], ""
+    for ch in s:
+        if current and ch != current[-1]:
+            out.append(current)
+            current = ""
+        current += ch
+    return out                    # BUG: the last run is lost; needs  if current: out.append(current)
+\end{pycode}
+The same happens when merging two sorted lists, where one list’s tail is left over when the other runs out, and in parsers that “flush” the current word at the end. If the output is missing its \emph{last} item, look for this.
+\textbf{A6 — wrong step after a match.} When replacing a pair of neighbours \code{(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} in a list, after a match you must jump over \emph{both} elements. Moving forward by only 1 lets the second element start another match:
+\Needspace{10\baselineskip}
+\begin{pycode}
+# replace each (1, 1) with 9, left to right, without overlapping
+i = 0
+while i < len(ids):
+    if i + 1 < len(ids) and ids[i] == 1 and ids[i + 1] == 1:
+        out.append(9)
+        i += 2                    # bug version: i += 1, so [1, 1, 1] gives [9, 9] instead of [9, 1]
+    else:
+        out.append(ids[i])
+        i += 1
+\end{pycode}
+You’ll see exactly this code in the Day 9 tokenizer.
+\textbf{A7 — \code{x[-n:\allowbreak{}]} when \code{n} is 0.} \code{-0} is just \code{0}, so \code{x[-0:\allowbreak{}]} is the whole list instead of an empty one (Day 1). The fix is \code{x[len(\allowbreak{}x)\allowbreak{}\ -\ n:\allowbreak{}]}, or a separate check for \code{n\ =\allowbreak{}=\allowbreak{}\ 0}.
+\textbf{A8 — counting from 0 vs from 1.} Python counts positions from 0, but humans count lines from 1. If an error message should say “line 1” for the first line, the loop needs \code{enumerate(\allowbreak{}lines,\allowbreak{}\ start=\allowbreak{}1)\allowbreak{}}. Without \code{start=\allowbreak{}1}, every reported line number is one too small.
+\textbf{A9 — slice ends are exclusive.} \code{s[i:\allowbreak{}j]} stops \emph{before} \code{j}, and \code{s[i:\allowbreak{}i+n]} is exactly \code{n} characters. Code that writes \code{s[i:\allowbreak{}j+1]} or \code{s[i:\allowbreak{}i+n-1]} “to be safe” is usually wrong by one.
+\textbf{A10 — off by one in numbering new items.} Specs often say exactly what number the first new item gets. In the BPE tokenizer, ids 0–255 are taken by single bytes, so the first learned token is 256, the next 257, and so on: \code{256\ +\ i} for the i-th one, counting from 0. Variants like \code{255\ +\ i} or \code{len(\allowbreak{}vocab)\allowbreak{}\ +\ 1} are typical planted bugs.
+\Needspace{10\baselineskip}
+\unnumberedsection{B. Comparisons, logic and arithmetic}
+\textbf{Where they live:} in the conditions and calculations that decide \emph{which} answer is chosen, or \emph{what value} is computed.
+\textbf{What they look like:} no crash, just a plausible but wrong answer: the second-best item instead of the best, the wrong one of two tied items, a total that’s slightly off.
+\textbf{How to check:} work out the right answer by hand for the smallest failing input, then examine every \code{max}, \code{min}, \code{sorted} key, comparison operator and arithmetic operator on the path that produced the wrong answer.
+\textbf{B1 — the wrong direction.} \code{max} instead of \code{min}, \code{\textgreater{}\allowbreak{}} instead of \code{\textless{}\allowbreak{}}, or a missing (or extra) \code{reverse=\allowbreak{}True}. The result is the least frequent item when the spec wants the most frequent.
+\textbf{B2 — ties broken the wrong way.} When two items score the same, \emph{something} decides which one wins. \code{max(\allowbreak{}d,\allowbreak{}\ key=\allowbreak{}d.get)\allowbreak{}} returns whichever tied key comes first in the dict. If the spec says “on ties, the smallest key”, that’s only correct by luck. The tie rule has to be written into the key, as on Day 3: for example \code{min(\allowbreak{}d,\allowbreak{}\ key=\allowbreak{}lambda\ k:\allowbreak{}\ (\allowbreak{}-d[k],\allowbreak{}\ k)\allowbreak{})\allowbreak{}} means “highest value, and among equal values the smallest key”.
+\textbf{B3 — \code{reverse=\allowbreak{}True} with a tuple key.} \code{reverse=\allowbreak{}True} reverses \emph{the whole comparison}, so every part of the tuple gets reversed. For “count descending, name ascending”, the key must be \code{(\allowbreak{}-count,\allowbreak{}\ name)\allowbreak{}} with no \code{reverse}. Writing \code{(\allowbreak{}count,\allowbreak{}\ name)\allowbreak{}} with \code{reverse=\allowbreak{}True} sorts tied names Z to A.
+\textbf{B4 — \code{and}/\code{or} mixed without parentheses.} Python evaluates \code{and} before \code{or}, so \code{a\ or\ b\ and\ c} means \code{a\ or\ (\allowbreak{}b\ and\ c)\allowbreak{}}. If the intent was \code{(\allowbreak{}a\ or\ b)\allowbreak{}\ and\ c}, the condition is wrong for some inputs.
+\textbf{B5 — the wrong kind of division.} \code{/\allowbreak{}} gives a float and \code{/\allowbreak{}/\allowbreak{}} rounds down. \code{int(\allowbreak{}x)\allowbreak{}} rounds toward zero, which is different from \code{/\allowbreak{}/\allowbreak{}} for negative numbers (\code{-7\ /\allowbreak{}/\allowbreak{}\ 2} is \code{-4}, but \code{int(\allowbreak{}-7\ /\allowbreak{}\ 2)\allowbreak{}} is \code{-3}). See Day 1.
+\textbf{B6 — \code{round(\allowbreak{})\allowbreak{}} rounds halves to even.} \code{round(\allowbreak{}0.5)\allowbreak{}} is \code{0} and \code{round(\allowbreak{}2.5)\allowbreak{}} is \code{2} (Day 1). If the spec wants classic “round half up”, the code needs something else, for example \code{int(\allowbreak{}x\ +\ 0.5)\allowbreak{}} for positive numbers.
+\textbf{B7 — comparing floats with \code{=\allowbreak{}=\allowbreak{}}.} \code{0.1\ +\ 0.2\ =\allowbreak{}=\allowbreak{}\ 0.3} is \code{False} (Day 1). Correct code compares with a small tolerance, or avoids floats altogether by counting in whole units (cents instead of euros).
+\textbf{B8 — \code{is} where \code{=\allowbreak{}=\allowbreak{}} was meant.} \code{is} asks “the very same object?”, and \code{=\allowbreak{}=\allowbreak{}} asks “equal values?”. \code{[1]\ =\allowbreak{}=\allowbreak{}\ [1]} is \code{True}, but \code{[1]\ is\ [1]} is \code{False}, because they’re two separate lists. Even for numbers, \code{x\ is\ 1000} can be \code{False} while \code{x\ =\allowbreak{}=\allowbreak{}\ 1000} is \code{True}. The only place \code{is} belongs in normal code is \code{x\ is\ None}.
+\textbf{B9 — truthiness hiding a real zero.} \code{d.get(\allowbreak{}k)\allowbreak{}\ or\ default} returns the default when the stored value is \code{0} or \code{\textquotedbl{}\textquotedbl{}}, even though the key exists, because \code{0\ or\ default} evaluates to \code{default}. Likewise \code{if\ not\ count:\allowbreak{}} treats a legitimate count of 0 as “missing”. See the stock example on Day 1, section 3.
+\textbf{B10 — the wrong variable.} A neighbouring variable is used by mistake: \code{i} instead of \code{j}, \code{a} twice instead of \code{a} and \code{b}. This is the hardest bug to \emph{see}, because your eyes autocorrect to what they expect:
+\Needspace{2\baselineskip}
+\begin{pycode}
+merged = vocab[a] + vocab[a]       # BUG: should be vocab[a] + vocab[b]
+\end{pycode}
+When a line looks fine but a test says otherwise, read it character by character, or say it out loud.
+\textbf{B11 — arguments in the wrong order.} \code{merge(\allowbreak{}ids,\allowbreak{}\ idx,\allowbreak{}\ pair)\allowbreak{}} instead of \code{merge(\allowbreak{}ids,\allowbreak{}\ pair,\allowbreak{}\ idx)\allowbreak{}}, or \code{isinstance(\allowbreak{}cls,\allowbreak{}\ obj)\allowbreak{}} instead of \code{isinstance(\allowbreak{}obj,\allowbreak{}\ cls)\allowbreak{}}. Check calls against the function’s definition.
+\textbf{B12 — an inverted condition.} The condition says the opposite of what’s meant:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if x in seen:                      # BUG: should be  not in
+    seen.add(x)
+    result.append(x)
+\end{pycode}
+Also \code{=\allowbreak{}=\allowbreak{}\ 0x80} where \code{!=\allowbreak{}\ 0x80} was meant. If a branch seems to handle exactly the case it shouldn’t, check for a missing or extra \code{not}.
+\textbf{B13 — the wrong bit operator or mask.} In bit-manipulation code (Day 5): \code{\textbar{}\allowbreak{}} instead of \code{\&\allowbreak{}}, \code{\textless{}\allowbreak{}\textless{}\allowbreak{}} instead of \code{\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}}, the mask \code{0x1F} instead of \code{0x3F}, a shift by 8 instead of 6. These only break characters of a certain length, which is why the failing tests’ inputs are your best clue.
+\Needspace{10\baselineskip}
+\unnumberedsection{C. The Python object model}
+\textbf{Where they live:} in how Python handles names, objects and references (Days 1 and 4).
+\textbf{What they look like:} a test that passes on its own but fails when run with the others; data that seems to change “by itself”; \code{None} where a value was expected; \code{AttributeError}; \code{TypeError:\allowbreak{}\ unhashable\ type}.
+\textbf{How to check:} whenever state behaves strangely, ask “who else holds a reference to this object?”.
+\textbf{C1 — mutable default argument.} \code{def\ f(\allowbreak{}x,\allowbreak{}\ acc=\allowbreak{}[])\allowbreak{}} creates the list \emph{once}, when the function is defined, so every call that doesn’t pass \code{acc} shares it (Day 4, section 2). Use \code{acc=\allowbreak{}None} and create the list inside the function.
+\textbf{C2 — mutable class attribute.} A list or dict written directly in the class body (\code{class\ C:\allowbreak{}\ items\ =\allowbreak{}\ []}) is shared by every instance (Day 4, section 2). It must be created in \code{\_\_init\_\_} as \code{self.items\ =\allowbreak{}\ []}.
+\textbf{C3 — aliasing instead of copying.} \code{result\ =\allowbreak{}\ original} doesn’t copy. It’s a second name for the same object, so changing \code{result} changes \code{original}. The same goes for \code{self.items\ =\allowbreak{}\ items} when the spec says not to keep a reference to the caller’s list. Copy with \code{list(\allowbreak{}x)\allowbreak{}}, \code{dict(\allowbreak{}x)\allowbreak{}} or \code{x.copy(\allowbreak{})\allowbreak{}}.
+\textbf{C4 — a shallow copy of nested data.} \code{dict(\allowbreak{}d)\allowbreak{}} and \code{list(\allowbreak{}l)\allowbreak{}} copy only the outer level. The inner lists and dicts are still shared, and \code{[[0]\ *\ n]\ *\ m} repeats one row \code{m} times. Nested data that will be modified needs \code{copy.deepcopy}, or a comprehension that builds fresh inner objects.
+\textbf{C5 — using the return value of a method that returns \code{None}.} \code{x\ =\allowbreak{}\ lst.sort(\allowbreak{})\allowbreak{}}, \code{x\ =\allowbreak{}\ lst.append(\allowbreak{}1)\allowbreak{}} and \code{x\ =\allowbreak{}\ d.update(\allowbreak{}...)\allowbreak{}} all set \code{x} to \code{None}. Those methods change the object in place and return nothing.
+\textbf{C6 — calling a string method and throwing the result away.} \code{s.strip(\allowbreak{})\allowbreak{}}, \code{s.lower(\allowbreak{})\allowbreak{}} or \code{s.replace(\allowbreak{}...)\allowbreak{}} on a line of its own does nothing, because strings can’t be changed and the new string is discarded (Day 2). It must be \code{s\ =\allowbreak{}\ s.strip(\allowbreak{})\allowbreak{}}.
+\textbf{C7 — a method mentioned but not called.} \code{line.strip} without parentheses is the method itself, not its result:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if line.strip:            # BUG: always True, because a method object is truthy
+if line.strip():          # correct: True if the line has non-space content
+\end{pycode}
+\textbf{C8 — \code{\_\_eq\_\_} without \code{\_\_hash\_\_}.} Defining \code{\_\_eq\_\_} makes objects unhashable, so they can’t go into sets or be dict keys, unless the class also defines \code{\_\_hash\_\_} (Day 4, section 5).
+\textbf{C9 — missing \code{super(\allowbreak{})\allowbreak{}.\_\_init\_\_(\allowbreak{})\allowbreak{}}.} A subclass that defines its own \code{\_\_init\_\_} but doesn’t call the base class’s \code{\_\_init\_\_} never gets the base class’s attributes, which leads to an \code{AttributeError} later (Day 4, section 6).
+\textbf{C10 — a property setter that assigns to itself.} Inside the setter for \code{x}, writing \code{self.x\ =\allowbreak{}\ value} calls the setter again, forever, until \code{RecursionError}. It must store into \code{self.\_x} (Day 4, section 3).
+\textbf{C11 — a generator used twice.} A generator is used up after one pass. Looping over it a second time gives nothing. The same is true of the objects returned by \code{zip(\allowbreak{})\allowbreak{}}, \code{map(\allowbreak{})\allowbreak{}} and \code{filter(\allowbreak{})\allowbreak{}} (Day 4, section 8).
+\textbf{C12 — changing a collection while looping over it.} Removing items from a list inside \code{for\ x\ in\ lst:\allowbreak{}} skips elements (Day 1). Adding or deleting dict keys inside \code{for\ k\ in\ d:\allowbreak{}} raises \code{RuntimeError} (Day 3). Loop over a copy, or build a new collection.
+\textbf{C13 — \code{return} or \code{yield} at the wrong indentation.} A \code{return} indented into the loop body returns after the first pass (Day 1, section 5).
+\textbf{C14 — using a loop variable after the loop.} After \code{for\ i\ in\ range(\allowbreak{}n)\allowbreak{}:\allowbreak{}}, \code{i} keeps its last value, \code{n\ -\ 1}. But if the loop never ran (\code{n\ =\allowbreak{}=\allowbreak{}\ 0}), \code{i} was never set at all:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for i in range(len(items)):
+    ...
+return i + 1              # works for non-empty lists, NameError/UnboundLocalError for an empty one
+\end{pycode}
+\textbf{C15 — hiding a built-in function.} Naming a variable \code{list}, \code{sum}, \code{id}, \code{max} or \code{bytes} hides the built-in function with that name, for the rest of the function:
+\Needspace{7\baselineskip}
+\begin{pycode}
+sum = 0
+for x in values:
+    sum += x
+average = sum / len(values)    # fine
+total = sum(values)            # TypeError: 'int' object is not callable
+\end{pycode}
+\textbf{C16 — catching too much.} \code{except\ Exception:\allowbreak{}\ return\ None} swallows every error, including the ones the spec says must be raised. The test’s \code{assertRaises} then fails, because nothing was raised (Day 4, section 7).
+\textbf{C17 — the wrong exception type.} Raising \code{KeyError} where the spec and tests want \code{ValueError}, or the other way round. Always check the test to see which type it expects.
+\Needspace{10\baselineskip}
+\unnumberedsection{D. Strings and bytes}
+\textbf{Where they live:} text processing, where the exact wording of the spec matters most: bytes or characters, which whitespace, which case, which format.
+\textbf{What they look like:} code that works on English text but fails on \code{é}; unexpected empty strings in a list; output that looks identical to the expected value but doesn’t compare equal (compare their \code{repr}s, Day 2); the text \code{b'...'} appearing inside a string.
+\textbf{D1 — \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}} instead of \code{split(\allowbreak{})\allowbreak{}}.} With two spaces in a row, tabs, or a trailing newline, \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}} produces empty strings and keeps the newline attached to the last word (Day 2, section 2).
+\textbf{D2 — \code{strip(\allowbreak{}\textquotedbl{}abc\textquotedbl{})\allowbreak{}} used to remove a word.} The argument is a \emph{set of characters}, not a prefix. To remove an exact prefix once, use \code{removeprefix} (Day 2).
+\textbf{D3 — case handled on only one side.} \code{if\ word.lower(\allowbreak{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ target:\allowbreak{}} is wrong when \code{target} might contain capitals. Both sides need \code{.lower(\allowbreak{})\allowbreak{}}.
+\textbf{D4 — counting characters where bytes were meant.} A length prefix in a binary format must count \textbf{bytes}: \code{len(\allowbreak{}s.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{})\allowbreak{}}, not \code{len(\allowbreak{}s)\allowbreak{}} (Day 5).
+\textbf{D5 — treating \code{b[0]} as bytes.} Indexing \code{bytes} gives an \code{int}, so \code{data[0]\ =\allowbreak{}=\allowbreak{}\ b\textquotedbl{}a\textquotedbl{}} is always \code{False}. Compare with \code{ord(\allowbreak{}\textquotedbl{}a\textquotedbl{})\allowbreak{}}, or slice with \code{data[0:\allowbreak{}1]} (Day 5).
+\textbf{D6 — decoding piece by piece.} \code{\textquotedbl{}\textquotedbl{}.join(\allowbreak{}t.decode(\allowbreak{})\allowbreak{}\ for\ t\ in\ tokens)\allowbreak{}} breaks characters whose bytes are split across two tokens. Join all the bytes first, then decode once (Day 5).
+\textbf{D7 — the wrong \code{errors=\allowbreak{}} mode.} The spec says invalid bytes become \code{�}, but the code uses the default strict mode and crashes, or the other way round.
+\textbf{D8 — \code{str(\allowbreak{})\allowbreak{}} on bytes.} \code{str(\allowbreak{}b\textquotedbl{}hi\textquotedbl{})\allowbreak{}} is the six-character string \code{\textquotedbl{}b'hi'\textquotedbl{}}, not \code{\textquotedbl{}hi\textquotedbl{}}. Converting bytes to text needs \code{.decode(\allowbreak{})\allowbreak{}}.
+\textbf{D9 — parsing in the wrong base.} \code{int(\allowbreak{}\textquotedbl{}ff\textquotedbl{})\allowbreak{}} raises an error. Hex digits need \code{int(\allowbreak{}\textquotedbl{}ff\textquotedbl{},\allowbreak{}\ 16)\allowbreak{}}. Similarly, binary needs \code{int(\allowbreak{}s,\allowbreak{}\ 2)\allowbreak{}}.
+\textbf{D10 — missing zero padding.} \code{f\textquotedbl{}\{10:\allowbreak{}x\}\textquotedbl{}} gives \code{\textquotedbl{}a\textquotedbl{}}, but a two-digit hex format needs \code{\textquotedbl{}0a\textquotedbl{}}, i.e. \code{f\textquotedbl{}\{10:\allowbreak{}02x\}\textquotedbl{}}. Without padding, the output has the wrong length and can’t be parsed back.
+\textbf{D11 — the wrong byte order.} \code{to\_bytes(\allowbreak{}4,\allowbreak{}\ \textquotedbl{}little\textquotedbl{})\allowbreak{}} where the format says big-endian (or the reverse) gives wrong numbers without any error (Day 5, section 5).
+\textbf{D12 — sorting digit strings as text.} \code{sorted(\allowbreak{}[\textquotedbl{}10\textquotedbl{},\allowbreak{}\ \textquotedbl{}9\textquotedbl{}])\allowbreak{}} gives \code{[\textquotedbl{}10\textquotedbl{},\allowbreak{}\ \textquotedbl{}9\textquotedbl{}]}, because strings compare character by character. Numeric order needs \code{key=\allowbreak{}int} (Day 2, section 3).
+\Needspace{10\baselineskip}
+\unnumberedsection{E. Algorithm logic and state}
+\textbf{Where they live:} in the \emph{logic} of the algorithm: when it stops, what it remembers between steps, and the order in which it does things.
+\textbf{What they look like:} a test that hangs (infinite loop or endless recursion); results that are right after the first step and wrong afterwards; one step too many or too few.
+\textbf{How to check:} trace two or three iterations by hand, writing down the full state (variables, list and dict contents) after each one, and compare with what the code does.
+\textbf{E1 — a missing or wrong base case.} A recursive function needs a case that \emph{doesn’t} call itself. If it’s missing, or doesn’t cover every input that can reach it, the recursion never ends:
+\Needspace{7\baselineskip}
+\begin{pycode}
+def power(base, exp):
+    """base ** exp for exp >= 0."""
+    if exp == 1:                   # BUG: power(2, 0) recurses forever (exp goes 0, -1, -2, ...)
+        return base
+    return base * power(base, exp - 1)
+\end{pycode}
+\textbf{E2 — an infinite \code{while} loop.} Some path through the loop body forgets to advance the variable the condition depends on (Day 1, section 4).
+\textbf{E3 — state that isn’t reset (or is reset too often).} A counter or dict that should start empty for each item (each line, each word) is created once before the loop, so counts from earlier items leak into later ones. The reverse also happens: an accumulator that should survive across items is reset inside the loop, so only the last item counts.
+\textbf{E4 — updates in the wrong order.} Here the second line uses the \emph{new} value of \code{a}, not the old one:
+\Needspace{2\baselineskip}
+\begin{pycode}
+a = b
+b = a + b              # BUG: this is b + b, because a was just overwritten
+a, b = b, a + b        # correct: the right-hand side is computed first, from the old values
+\end{pycode}
+\textbf{E5 — the wrong stopping condition.} “Stop when no pair occurs more than once” means stop when the best count is below 2. Writing \code{\textless{}\allowbreak{}\ 1} instead lets the loop continue one step too far. Read the stop rule in the spec word by word.
+\textbf{E6 — leaving too early.} A \code{return} where the code should \code{break} or \code{continue}, or an \code{else} attached to the wrong \code{if}, makes the function finish before it has looked at everything.
+\textbf{E7 — checks in an order that makes some unreachable.} With \code{if\ b\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0xC0:\allowbreak{}\ ...\ elif\ b\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0xE0:\allowbreak{}\ ...}, the second branch can never run, because anything that’s \code{\textgreater{}\allowbreak{}=\allowbreak{}\ 0xE0} is also \code{\textgreater{}\allowbreak{}=\allowbreak{}\ 0xC0} and is caught by the first (Day 5).
+\textbf{E8 — choosing by the wrong priority.} When several options are available, the spec says which to pick. The tokenizer must apply the merge learned \emph{earliest} (lowest id). Code that uses \code{max} instead of \code{min} picks the latest one, and still produces plausible-looking output.
+\Needspace{10\baselineskip}
+\unnumberedsection{How to \emph{find} them fast}
+The catalog tells you \emph{what} to look for. Here’s \emph{where} to look, in order of how often it pays off:
+\begin{enumerate}
+\item \textbf{Diff the spec against the code line by line.} For each spec sentence, find the code that implements it. Planted bugs often sit exactly where a spec detail (“inclusive”, “ties”, “1-based”, “bytes not characters”, “ignore case”) should have been implemented.
+\item \textbf{Look hard at constants and operators:} every \code{0}, \code{1}, \code{-1}, \code{+1}, \code{\textless{}\allowbreak{}}, \code{\textless{}\allowbreak{}=\allowbreak{}}, \code{256}, \code{0x80} etc.
+\item \textbf{Check every loop’s bounds and its post-loop handling.}
+\item \textbf{Check every return statement:} right variable? right indentation? copy vs alias?
+\item \textbf{Hand-run the smallest failing test.} Two or three iterations by hand usually reveal it.
+\end{enumerate}
+Steps 1–4 are about \emph{reading}, and you can do them before running anything at all, during the 10 minutes of reading at the start of the exam. Step 5 is what you do when reading doesn’t reveal the bug.
+One more trick that works surprisingly often. Since a planted bug is usually “one token changed”, look at each suspicious token and ask: \emph{what would the alternative be, and which version matches the spec?} \code{\textless{}\allowbreak{}} or \code{\textless{}\allowbreak{}=\allowbreak{}}? \code{i} or \code{j}? \code{max} or \code{min}? \code{0} or \code{1}? \code{a} or \code{b}? Usually only one of the two is plausible, and you can check it in seconds.
+\Needspace{10\baselineskip}
+\unnumberedsection{Background for the exercises}
+Two of today’s exercises are built on classic algorithms you may not have met. Here’s what you need to know about each before you start.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Binary search (ex02)}
+\textbf{The problem.} You have a \textbf{sorted} list and want to find a value in it, or the position where it would go. The obvious way is to look at every item in turn. For a million items, that’s up to a million comparisons. \textbf{Binary search} needs about 20.
+\textbf{The idea.} It’s how you’d look up a word in a paper dictionary. Open it in the middle. If your word comes earlier in the alphabet, you can forget the whole second half. Open the first half in the middle, and so on. Each comparison throws away half of what’s left: a million, then 500,000, then 250,000... down to one in about 20 steps.
+\textbf{In code.} We keep two positions, \code{lo} and \code{hi}, marking the part of the list where the answer can still be. Each step looks at the middle position \code{mid} and moves \code{lo} or \code{hi} to throw away the half that can’t contain the answer. The version below finds the \textbf{first position whose value is \code{\textgreater{}\allowbreak{}=\allowbreak{}\ x}}, which is also where \code{x} would be inserted to keep the list sorted:
+\Needspace{11\baselineskip}
+\begin{pycode}
+def lower_bound(a, x):
+    """First index i with a[i] >= x (len(a) if none)."""
+    lo, hi = 0, len(a)            # the answer is somewhere in lo..hi; hi = len(a) means "after everything"
+    while lo < hi:                # while there's more than one candidate
+        mid = (lo + hi) // 2      # middle position (// so it's an int!)
+        if a[mid] < x:
+            lo = mid + 1          # a[mid] is too small, so the answer is after mid
+        else:
+            hi = mid              # a[mid] >= x: mid might be the answer itself, so keep it
+    return lo
+\end{pycode}
+Let’s trace \code{lower\_bound(\allowbreak{}[1,\allowbreak{}\ 3,\allowbreak{}\ 5,\allowbreak{}\ 7],\allowbreak{}\ 5)\allowbreak{}}:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.43}Y{0.43}Y{0.43}Y{0.43}Y{3.28}@{}}
+\rowcolor{primary}
+\thd{lo} & \thd{hi} & \thd{mid} & \thd{a[mid]} & \thd{decision} \\ \hline
+\endhead
+0 & 4 & 2 & 5 & 5 is not \textless{} 5, so the answer is at 2 or before: hi = 2 \\
+0 & 2 & 1 & 3 & 3 \textless{} 5, so the answer is after 1: lo = 2 \\
+2 & 2 & — & — & lo == hi, stop: answer 2 \\
+\hline
+\end{xltabular}
+\end{datatable}
+The two branches are deliberately different. When \code{a[mid]} is too small, \code{mid} itself can’t be the answer, so \code{lo} jumps \emph{past} it (\code{mid\ +\ 1}). When \code{a[mid]} is big enough, \code{mid} \emph{might} be the answer, so \code{hi} stops \emph{at} it (\code{mid}), keeping it in range.
+Every classic binary-search bug breaks one of these details:
+\begin{itemize}
+\item \code{lo\ =\allowbreak{}\ mid} instead of \code{lo\ =\allowbreak{}\ mid\ +\ 1}: when \code{hi\ =\allowbreak{}=\allowbreak{}\ lo\ +\ 1}, \code{mid} equals \code{lo}, nothing changes, and the loop runs forever.
+\item \code{hi\ =\allowbreak{}\ len(\allowbreak{}a)\allowbreak{}\ -\ 1} at the start: the answer “after everything” can never be returned.
+\item \code{a[mid]\ \textless{}\allowbreak{}=\allowbreak{}\ x} instead of \code{\textless{}\allowbreak{}}: you get the first position with a value \emph{greater than} \code{x} (that’s called \code{upper\_bound}).
+\item \code{/\allowbreak{}} instead of \code{/\allowbreak{}/\allowbreak{}}: \code{mid} is a float and indexing crashes.
+\end{itemize}
+Today’s file also contains three relatives. \textbf{\code{count\_occurrences}} is \code{upper\_bound\ -\ lower\_bound}: the number of positions holding exactly \code{x}. \textbf{Searching a rotated sorted list} like \code{[4,\allowbreak{}\ 5,\allowbreak{}\ 6,\allowbreak{}\ 1,\allowbreak{}\ 2,\allowbreak{}\ 3]} (a sorted list that has been “rotated” so it starts in the middle) relies on one fact: when you split it at \code{mid}, at least one of the two halves is properly sorted, and you can check whether \code{x} falls in that half’s range. The \textbf{integer square root} \code{isqrt(\allowbreak{}n)\allowbreak{}} uses binary search on \emph{possible answers} rather than on a list: find the largest \code{r} with \code{r\ *\ r\ \textless{}\allowbreak{}=\allowbreak{}\ n}.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{A calculator: tokenizer + shunting-yard (ex03)}
+\textbf{The problem.} Compute the value of a string like \code{\textquotedbl{}2\ +\ 3\ *\ (\allowbreak{}4\ -\ 1)\allowbreak{}\textquotedbl{}}. The difficulty is that you can’t just go left to right: multiplication must happen before addition, and parentheses override everything. Programs that do this (calculators, spreadsheet formulas, programming-language interpreters) usually work in three stages.
+\textbf{Stage 1: tokenize.} First, cut the string into meaningful pieces, called \textbf{tokens}. Spaces are skipped, a run of digits becomes one number, and each operator or parenthesis becomes its own token:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+"2 + 3*(4-1)"   ->   [2, "+", 3, "*", "(", 4, "-", 1, ")"]
+\end{txtcode}
+This is a scanning loop from Day 2. One subtle part is the minus sign. In \code{5\ -\ 2} it means \emph{subtract}, but in \code{-2} or \code{3\ *\ -2} it means \emph{negative}. The rule is: a \code{-} at the very start, or right after another operator or \code{(\allowbreak{}}, is a negation. The tokenizer marks those as a different token, \code{\textquotedbl{}u-\textquotedbl{}} (“unary minus”, unary meaning it takes just one number).
+\textbf{Stage 2: reorder into Reverse Polish Notation.} \textbf{Reverse Polish Notation (RPN)} is a way of writing expressions where each operator comes \emph{after} the numbers it applies to:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{1.24}Y{0.76}@{}}
+\rowcolor{primary}
+\thd{Normal notation} & \thd{RPN} \\ \hline
+\endhead
+\code{2\ +\ 3} & \code{2\ 3\ +} \\
+\code{2\ +\ 3\ *\ 4} & \code{2\ 3\ 4\ *\ +} \\
+\code{(\allowbreak{}2\ +\ 3)\allowbreak{}\ *\ 4} & \code{2\ 3\ +\ 4\ *} \\
+\hline
+\end{xltabular}
+\end{datatable}
+RPN never needs parentheses or precedence rules: the order of the tokens already says what to compute first. The \textbf{shunting-yard algorithm} converts normal notation to RPN using two lists: an \textbf{output} and a \textbf{stack of waiting operators}. (A stack is a list where you only add and remove at the end, Day 1.) It goes through the tokens one by one:
+\begin{itemize}
+\item A \textbf{number} goes straight to the output.
+\item An \textbf{operator} first moves to the output every waiting operator that must be computed \emph{before} it (one with higher precedence, or equal precedence for left-to-right operators like \code{-}), and then waits on the stack itself.
+\item A \textbf{\code{(\allowbreak{}}} goes onto the stack. A \textbf{\code{)\allowbreak{}}} moves operators to the output until it reaches the matching \code{(\allowbreak{}}, which is thrown away.
+\item At the end, all remaining waiting operators move to the output.
+\end{itemize}
+Let’s trace \code{2\ +\ 3\ *\ 4}:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.43}Y{2.69}Y{0.46}Y{0.42}@{}}
+\rowcolor{primary}
+\thd{Token} & \thd{Action} & \thd{Output} & \thd{Stack} \\ \hline
+\endhead
+2 & number → output & \code{2} &  \\
++ & stack is empty, so wait & \code{2} & \code{+} \\
+3 & number → output & \code{2\ 3} & \code{+} \\
+* & \code{+} has lower precedence than \code{*}, so it stays; \code{*} waits & \code{2\ 3} & \code{+\ *} \\
+4 & number → output & \code{2\ 3\ 4} & \code{+\ *} \\
+end & move all waiting operators to the output, last first & \code{2\ 3\ 4\ *\ +} &  \\
+\hline
+\end{xltabular}
+\end{datatable}
+\textbf{Associativity} decides what happens when two operators have \emph{equal} precedence. Subtraction goes left to right: \code{8\ -\ 3\ -\ 2} means \code{(\allowbreak{}8\ -\ 3)\allowbreak{}\ -\ 2\ =\allowbreak{}\ 3}, so an equal operator already waiting is moved out first. Exponentiation (\code{\textasciicircum{}}) goes right to left: \code{2\ \textasciicircum{}\ 3\ \textasciicircum{}\ 2} means \code{2\ \textasciicircum{}\ (\allowbreak{}3\ \textasciicircum{}\ 2)\allowbreak{}\ =\allowbreak{}\ 512}, so an equal \code{\textasciicircum{}} waiting on the stack is \emph{not} moved out. In the code this is the difference between a \code{\textgreater{}\allowbreak{}} and a \code{\textgreater{}\allowbreak{}=\allowbreak{}} in one comparison, which makes it a very likely bug location.
+\textbf{Stage 3: evaluate the RPN.} Use a stack of values. A number is pushed. An operator pops the top two values, applies itself, and pushes the result. Careful: the value popped \emph{first} is the \emph{right-hand} operand.
+\Needspace{8\baselineskip}
+\begin{txtcode}
+evaluating  2 3 4 * +
+  push 2              -> [2]
+  push 3              -> [2, 3]
+  push 4              -> [2, 3, 4]
+  "*": pop 4, pop 3   -> push 3 * 4 = 12  -> [2, 12]
+  "+": pop 12, pop 2  -> push 2 + 12 = 14 -> [14]
+result: 14
+\end{txtcode}
+At the end exactly one value must remain. Anything else means the expression was malformed.
+Where bugs hide in calculator code:
+\begin{itemize}
+\item \textbf{The operand order when popping.} \code{a\ -\ b} and \code{b\ -\ a} only differ for \code{-}, \code{/\allowbreak{}} and \code{\textasciicircum{}}, so tests using \code{+} and \code{*} still pass, which makes this bug easy to miss.
+\item \textbf{The precedence comparison} (\code{\textgreater{}\allowbreak{}} vs \code{\textgreater{}\allowbreak{}=\allowbreak{}}): that’s associativity.
+\item \textbf{Detecting unary minus}, i.e. checking what came before the \code{-}.
+\item \textbf{Number conversion}: \code{\textquotedbl{}2.5\textquotedbl{}} must become a float, not be truncated to an int.
+\item \textbf{Error checks}: unbalanced parentheses, or values left over at the end.
+\end{itemize}
+\Needspace{10\baselineskip}
+\unnumberedsection{The toolbox: Python you’ll meet in today’s exercises}
+Most of what the exercises use was explained on Days 1–6. These are the few remaining techniques, plus reminders of ones that are easy to misread.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Using a module: \code{import\ copy}}
+Some tools aren’t built in but live in \textbf{modules} from Python’s standard library, which is always available, including in the exam. \code{import\ copy} at the top of a file makes the module available, and you use its functions with a dot: \code{copy.deepcopy(\allowbreak{}cfg)\allowbreak{}} (Day 3, section 7). You’ll see the same pattern with \code{heapq}, \code{collections} and \code{unittest}.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Replacing a list’s contents in place: \code{nums[:\allowbreak{}]\ =\allowbreak{}\ ...}}
+\code{nums\ =\allowbreak{}\ [x\ for\ x\ in\ nums\ if\ x\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0]} builds a new list and points the \textbf{local name} \code{nums} at it. The caller’s list is untouched. If the spec says “modify the list in place”, assign to a \textbf{slice} instead:
+\Needspace{2\baselineskip}
+\begin{pycode}
+nums[:] = [x for x in nums if x >= 0]
+\end{pycode}
+\code{nums[:\allowbreak{}]} on the left of \code{=\allowbreak{}} means “all the positions of \emph{this} list”: the existing list object keeps its identity, and its contents are replaced. Everyone holding a reference to it sees the change.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Swapping two positions}
+Unpacking (Day 1, section 8) swaps two items without a temporary variable, because the right side is evaluated before anything is assigned:
+\Needspace{2\baselineskip}
+\begin{pycode}
+out[i], out[i + 1] = out[i + 1], out[i]
+\end{pycode}
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Merging two sorted lists with two pointers}
+\code{merge\_sorted} walks through both lists at once, with an index into each (\code{i} and \code{j}). At each step it compares the two current items, appends the smaller one, and moves that list’s index forward. When one list runs out, the loop stops, and \textbf{whatever is left of the other list} (already sorted, and all at least as big) is added with \code{extend}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+a = [1, 4, 9], b = [2, 3]
+1 < 2 -> take 1 (i=1)     4 > 2 -> take 2 (j=1)     4 > 3 -> take 3 (j=2, b is used up)
+leftovers: a[1:] = [4, 9]  ->  [1, 2, 3, 4, 9]
+\end{txtcode}
+Forgetting the leftovers is catalog bug A5.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{The median}
+The median is the middle value of the \textbf{sorted} data. With an odd number of items there’s exactly one middle, \code{s[n\ /\allowbreak{}/\allowbreak{}\ 2]}: for 5 items that’s position 2. With an even number there are two middles, \code{s[n\ /\allowbreak{}/\allowbreak{}\ 2\ -\ 1]} and \code{s[n\ /\allowbreak{}/\allowbreak{}\ 2]}, and the median is their average: for \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3,\allowbreak{}\ 4]} it’s \code{(\allowbreak{}2\ +\ 3)\allowbreak{}\ /\allowbreak{}\ 2\ =\allowbreak{}\ 2.5}. \code{if\ n\ \%\ 2:\allowbreak{}} is a short way of writing “if \code{n} is odd”, because \code{n\ \%\ 2} is 1 (truthy) for odd numbers and 0 (falsy) for even ones.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{A dict as a lookup table}
+The calculator keeps operator precedences in a dict, \code{PREC\ =\allowbreak{}\ \{\textquotedbl{}+\textquotedbl{}:\allowbreak{}\ 1,\allowbreak{}\ \textquotedbl{}-\textquotedbl{}:\allowbreak{}\ 1,\allowbreak{}\ \textquotedbl{}*\textquotedbl{}:\allowbreak{}\ 2,\allowbreak{}\ ...\}}. That makes two questions one-liners:
+\begin{itemize}
+\item “How strong is this operator?” is \code{PREC[t]}.
+\item “Is this token an operator?” is \code{t\ in\ PREC}, because \code{in} on a dict checks its keys (Day 3).
+\end{itemize}
+\code{c\ in\ \textquotedbl{}+-*/\allowbreak{}\textasciicircum{}(\allowbreak{})\allowbreak{}\textquotedbl{}} asks whether the one-character string \code{c} occurs in that string, which is a compact way of checking “is \code{c} one of these characters?”.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{A list that mixes numbers and strings}
+The token list holds both numbers (\code{2}, \code{3.5}) and strings (\code{\textquotedbl{}+\textquotedbl{}}, \code{\textquotedbl{}(\allowbreak{}\textquotedbl{}}). To tell them apart, the code asks \code{isinstance(\allowbreak{}t,\allowbreak{}\ (\allowbreak{}int,\allowbreak{}\ float)\allowbreak{})\allowbreak{}} (Day 3, section 9): numbers go one way, operators the other. Note that the number \code{2} and the string \code{\textquotedbl{}2\textquotedbl{}} are different tokens. Converting the text of a number at the right moment, with \code{int(\allowbreak{}...)\allowbreak{}} or \code{float(\allowbreak{}...)\allowbreak{}}, is part of the tokenizer’s job.
+\code{prev\ =\allowbreak{}\ tokens[-1]\ if\ tokens\ else\ None} (Day 1, section 8) reads “the previous token, or \code{None} if there isn’t one yet”, which is how the tokenizer knows whether a \code{-} is the very first token.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Pop, change, push back}
+\code{st.append(\allowbreak{}-st.pop(\allowbreak{})\allowbreak{})\allowbreak{}} reads from the inside out: take the top value off the stack, negate it, and push the result back. That’s how unary minus is applied in one line.
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Target: under 2 minutes per bug. Write the catalog code (for example \code{A4}) in a comment next to each fix.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}bug\_\allowbreak{}zoo.\allowbreak{}py} & \textbf{debug} & 22 tiny functions, one catalog bug each. Target: \textless{} 2 min per bug \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}binary\_\allowbreak{}search.\allowbreak{}py} & \textbf{debug} & binary-search family, 5 bugs \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}calculator.\allowbreak{}py} & \textbf{debug} & tokenizer + shunting-yard expression evaluator, 7 bugs. 40 min \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 7
+\end{shcode}
+How to approach each:
+\begin{itemize}
+\item \textbf{ex01} is a speed drill. Each function is tiny and its bug is a single catalog entry, so the goal is to \emph{recognise} it, not to analyse it. If you need more than two minutes for one, read its docstring again and run through the catalog categories.
+\item \textbf{ex02} and \textbf{ex03} are closer to the exam: several bugs interacting inside one algorithm, with the spec at the top of the file. Read the spec \emph{and} the background above before running any tests.
+\end{itemize}
+For each bug you fix, write the catalog code (e.g. \code{A4}) in a comment next to the fix. That’s how you build the reflex.
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can name the catalog code (A4, B3, C10, ...) for each bug I fixed.
+\item I ran \code{python\ run.py\ 7} and the full suite passes.
+\item I added tonight’s bugs to \code{bug\_journal.md}.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Planted bugs are one-token changes: \code{\textless{}\allowbreak{}} versus \code{\textless{}\allowbreak{}=\allowbreak{}}, \code{i} versus \code{i+1}, \code{+} versus \code{-}, a mask, \code{is} versus \code{=\allowbreak{}=\allowbreak{}}.
+\item Check loop bounds, post-loop handling, and the indentation of every \code{return}.
+\item Name the catalog code in your journal; recognition is the skill being tested.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

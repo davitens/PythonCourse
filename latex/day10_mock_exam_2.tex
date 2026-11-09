@@ -1,0 +1,207 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{10}
+\renewcommand{\courseDayInt}{10}
+\renewcommand{\courseShort}{MOCK EXAM 2}
+\renewcommand{\courseTitle}{Mock Exam\\\#2}
+\renewcommand{\courseSubtitle}{A second timed rehearsal, then the exam-day playbook.}
+\renewcommand{\courseTime}{120 min + strategy}
+\renewcommand{\courseFocus}{Exam strategy}
+\renewcommand{\courseFolder}{day10\_mock\_exam\_2}
+\renewcommand{\courseEyebrow}{DAY 10\enspace\textcolor{rule}{\textperiodcentered}\enspace MOCK EXAM 2}
+\renewcommand{\courseTopics}{\topic{Key-value store}\topic{Strategy}\topic{Cheat sheet}}
+\renewcommand{\courseNext}{You are ready. Good luck.}
+\renewcommand{\courseTestCount}{35}
+\renewcommand{\courseGoal}{A second 120-minute rehearsal -- a transactional key-value store -- followed by the exam-day playbook.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[The brief]
+A second 120-minute rehearsal -- a transactional key-value store -- followed by the exam-day playbook.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Part 1 — Mock exam: broken transactional key-value store}
+Same rules as Day 9: 120-minute timer, no AI/web/solutions, only edit \code{exam/\allowbreak{}kvstore.py}.
+\Needspace{2\baselineskip}
+\begin{shcode}
+cp exam/kvstore.py exam/kvstore.original.py     # pristine copy for a retry
+cd exam
+python -m unittest 2>&1 | tail -3
+\end{shcode}
+Read \code{exam/\allowbreak{}SPEC.md} first. 35 tests. Afterwards: \code{python\ run.py\ 10\ --solutions}, then \code{solution/\allowbreak{}BUGS.md}.
+This exam is deliberately different from yesterday’s. Day 9 was an algorithm working on bytes and lists. Today’s program is a \textbf{class whose state changes over time} (transactions), plus a \textbf{binary file format} and a small \textbf{command parser}. Mixing several topics in one program like this is typical of the real assessment.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Background you need (allowed before starting the timer)}
+\subsubsection{What a key-value store is}
+A \textbf{key-value store} is essentially a dict wrapped in a class, with methods to \code{set} a key, \code{get} it, \code{delete} it, \code{count} how many keys hold a given value, and list the \code{keys} that start with a prefix. Real examples are databases like Redis. On its own, that part is Day 3 material. Three features make it interesting.
+\subsubsection{Feature 1: nested transactions}
+A \textbf{transaction} is a group of changes that you can either keep or throw away \emph{as a whole}. You call \code{begin(\allowbreak{})\allowbreak{}} to start one, make some changes, and then either \code{commit(\allowbreak{})\allowbreak{}} to make them permanent, or \code{rollback(\allowbreak{})\allowbreak{}} to undo all of them as if they never happened. Banks use transactions so that a transfer either fully happens or doesn’t happen at all.
+\textbf{Nested} means you can call \code{begin(\allowbreak{})\allowbreak{}} again while a transaction is already open, opening a transaction inside a transaction. In this spec:
+\begin{itemize}
+\item \code{rollback(\allowbreak{})\allowbreak{}} undoes only the \textbf{innermost} open transaction, the most recent \code{begin};
+\item \code{commit(\allowbreak{})\allowbreak{}} makes \textbf{all} open transactions permanent and closes them all.
+\end{itemize}
+How can that be implemented? The standard idea is a \textbf{stack of layers}:
+\begin{itemize}
+\item The committed data is a normal dict.
+\item Each \code{begin(\allowbreak{})\allowbreak{}} adds a new, empty dict on top of the stack. It will record only the changes made inside that transaction.
+\item A \code{set} writes into the \textbf{top} layer only.
+\item A \code{get} looks for the key \textbf{starting from the top layer and going down}, and returns the first value it finds. So the most recent change wins.
+\item \code{rollback(\allowbreak{})\allowbreak{}} throws away the top layer. Everything it recorded disappears in one go.
+\item \code{commit(\allowbreak{})\allowbreak{}} applies all the layers to the committed data, \textbf{from the bottom up}, so newer changes overwrite older ones. Then the stack is emptied.
+\end{itemize}
+Here’s the example from the spec, traced step by step (\code{⌀} is explained just below):
+\Needspace{8\baselineskip}
+\begin{txtcode}
+committed: {a: 10}         layers: []
+begin                      layers: [{}]
+set a 20                   layers: [{a: 20}]           get a -> 20   (found in the top layer)
+begin                      layers: [{a: 20}, {}]
+delete a                   layers: [{a: 20}, {a: ⌀}]   get a -> None (the top layer says "deleted")
+rollback                   layers: [{a: 20}]           get a -> 20
+rollback                   layers: []                  get a -> 10   (only the committed data is left)
+\end{txtcode}
+(In \code{kvstore.py}, the committed data is the attribute holding the main dict, and \code{\_layers} is the list of open transactions, innermost last.)
+\subsubsection{Why a delete needs a “tombstone”}
+Look at the \code{delete\ a} step above. Inside a transaction, deleting a key can’t simply remove it from the top layer, because the key might still exist in a lower layer (here \code{\{a:\allowbreak{}\ 20\}}) or in the committed data (\code{\{a:\allowbreak{}\ 10\}}). A \code{get} would then fall through to the lower layer and find the old value, as if the delete never happened.
+So instead, a delete inside a transaction writes a special marker into the top layer, which means “this key is deleted, as far as this layer and everything above it is concerned”. This marker is called a \textbf{tombstone}. In Python it’s usually a unique object created just for this purpose, such as \code{\_DELETED\ =\allowbreak{}\ object(\allowbreak{})\allowbreak{}}, which can never be confused with a real value.
+\begin{itemize}
+\item A \code{get} that finds a tombstone stops searching and reports the key as absent.
+\item A \code{commit} that finds a tombstone removes the key from the committed data.
+\item \code{count} and \code{keys} must use the same rules. Each of them must look at the \textbf{visible} state, which is what \code{get} would see, not at the committed dict alone. A query that reads the committed dict directly is a typical planted bug.
+\end{itemize}
+\subsubsection{Feature 2: the binary snapshot format}
+\code{serialize(\allowbreak{})\allowbreak{}} turns the visible contents of the store into bytes, a “snapshot” that could be saved to a file. \code{deserialize(\allowbreak{}data)\allowbreak{}} rebuilds a store from those bytes. The format, from the spec:
+\Needspace{8\baselineskip}
+\begin{txtcode}
+b"KV1"            3 bytes: a fixed "magic" signature identifying the format
+N                 4 bytes, big-endian: number of entries
+for each entry (sorted by the UTF-8 bytes of the key):
+    key length    2 bytes, big-endian, counted in BYTES
+    key           the key, encoded as UTF-8
+    value length  4 bytes, big-endian, counted in BYTES
+    value         the value, encoded as UTF-8
+\end{txtcode}
+All of this is Day 5 and Day 8 material:
+\begin{itemize}
+\item The \textbf{magic} prefix is a fixed signature at the start of the file, so the reader can immediately reject data that isn’t in this format.
+\item Lengths and counts are fixed-width integers written with \code{to\_bytes(\allowbreak{}n,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} and read with \code{int.from\_bytes(\allowbreak{}...,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}}. Mixing up the width (2 vs 4 bytes) or the byte order breaks the round trip.
+\item Lengths count \textbf{bytes}: \code{len(\allowbreak{}key.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{})\allowbreak{}}, not \code{len(\allowbreak{}key)\allowbreak{}}. This is the D4 bug from the catalog, and it only shows up with non-ASCII keys like \code{\textquotedbl{}é\textquotedbl{}}.
+\item The reader is a cursor-based parser (Day 8, section 2). It must check that enough bytes remain \emph{before every read}, reject bytes left over at the end, reject invalid UTF-8, and check that the keys arrive in strictly increasing order (which also rules out duplicates).
+\end{itemize}
+\subsubsection{Feature 3: the command language}
+\code{execute(\allowbreak{}\textquotedbl{}SET\ name\ Ana\ Maria\textquotedbl{})\allowbreak{}} takes one line of text, works out which command it is, and calls the right method. That’s Day 2 material, and the spec is precise about every detail:
+\begin{itemize}
+\item The command word is \textbf{case-insensitive}: \code{set}, \code{SET} and \code{Set} are all the same. That suggests \code{.upper(\allowbreak{})\allowbreak{}} on the first word only, since keys are case-sensitive.
+\item Words are separated by \textbf{any} whitespace, which means \code{split(\allowbreak{})\allowbreak{}} with no argument (Day 2), not \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}}.
+\item For \code{SET}, the value is “everything after the key”, and it may contain spaces. Splitting into all words would lose those spaces. A \textbf{limited split}, \code{line.split(\allowbreak{}None,\allowbreak{}\ 2)\allowbreak{}}, splits at most twice and leaves the rest of the line, internal spaces included, as the third piece. (\code{None} as the separator means “any whitespace”, just like \code{split(\allowbreak{})\allowbreak{}} with no argument.)
+\item The output table in the spec says exactly which string to return in each case, including \code{NULL}, \code{ERROR} and \code{NO\ TRANSACTION}. Check the test for the exact spelling.
+\end{itemize}
+\subsubsection{Python you’ll meet in \code{kvstore.py}}
+As with yesterday’s exam, make sure you can read these lines at a glance before you start the timer.
+\textbf{A sentinel compared with \code{is}.} \code{\_DELETED\ =\allowbreak{}\ object(\allowbreak{})\allowbreak{}} creates a brand-new, featureless object. Nothing else in the program can ever \emph{be} that object, so \code{value\ is\ \_DELETED} (Day 4, section 10) is a safe test for “this is a tombstone”. Using \code{=\allowbreak{}=\allowbreak{}}, or a value like \code{None} or \code{\textquotedbl{}\textquotedbl{}} as the marker, could clash with real data.
+\textbf{Searching the layers from the top.} \code{for\ layer\ in\ reversed(\allowbreak{}self.\_layers)\allowbreak{}:\allowbreak{}} visits the innermost (most recent) transaction first, then the ones below it (\code{reversed}, Day 1 section 8). The first layer that mentions the key decides the answer, which is why the order matters. A plain \code{for\ layer\ in\ self.\_layers:\allowbreak{}} would let an \emph{older} layer win.
+\textbf{The top layer.} \code{self.\_layers[-1]} is the innermost open transaction (the last item of the list), and \code{self.\_layers[-1][key]\ =\allowbreak{}\ value} writes into that layer’s dict. \code{if\ self.\_layers:\allowbreak{}} checks whether any transaction is open at all: an empty list is falsy (Day 1, section 3).
+\textbf{Removing a key that might not be there.} \code{view.pop(\allowbreak{}key,\allowbreak{}\ None)\allowbreak{}} removes \code{key} if it’s present and does nothing if it isn’t. Without the second argument, \code{pop} raises \code{KeyError} for a missing key (Day 3, section 1).
+\textbf{Fixed-size integers in bytes.} \code{len(\allowbreak{}items)\allowbreak{}.to\_bytes(\allowbreak{}4,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} writes a length as exactly 4 bytes, and \code{int.from\_bytes(\allowbreak{}chunk,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} reads it back (Day 5, Day 8). The spec says how many bytes each length field uses; check that every \code{to\_bytes} and every \code{take} agrees with it.
+\textbf{Sorting pairs of bytes.} \code{sorted(\allowbreak{}(\allowbreak{}k.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{},\allowbreak{}\ v.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{})\allowbreak{}\ for\ k,\allowbreak{}\ v\ in\ ...)\allowbreak{}} builds \code{(\allowbreak{}key\_bytes,\allowbreak{}\ value\_bytes)\allowbreak{}} pairs and sorts them by key bytes first (tuples compare item by item). Bytes compare byte by byte, like strings compare character by character.
+\textbf{A nested function that moves the cursor: \code{nonlocal}.} \code{deserialize} reads the snapshot with a cursor \code{pos} (Day 8, section 2) and a small helper defined inside it:
+\Needspace{10\baselineskip}
+\begin{pycode}
+pos = 3
+
+def take(n):
+    nonlocal pos
+    if pos + n > len(data):
+        raise ValueError("truncated snapshot")
+    chunk = data[pos:pos + n]
+    pos += n
+    return chunk
+\end{pycode}
+A nested function can \emph{read} the outer function’s variables freely. But as soon as it \emph{assigns} to one (\code{pos\ +=\allowbreak{}\ n}), Python treats the name as a new local variable of the inner function, unless you declare \code{nonlocal\ pos}, which means “the \code{pos} I’m assigning to is the one in the enclosing function”. Forget it, and the first \code{pos\ +\ n} fails with \code{UnboundLocalError}, because the inner \code{pos} doesn’t have a value yet. With it, every call to \code{take} hands back the next \code{n} bytes and moves the shared cursor forward, so the caller can simply write \code{take(\allowbreak{}2)\allowbreak{}}, \code{take(\allowbreak{}4)\allowbreak{}}, ...
+\textbf{\code{@classmethod} and \code{cls(\allowbreak{})\allowbreak{}}.} \code{deserialize} is called on the class, \code{KVStore.deserialize(\allowbreak{}data)\allowbreak{}}, and builds the new store with \code{cls(\allowbreak{})\allowbreak{}} (Day 4, section 4).
+\textbf{Repeating without a counter.} \code{for\ \_\ in\ range(\allowbreak{}count)\allowbreak{}:\allowbreak{}} runs the body \code{count} times; the \code{\_} says the loop number itself isn’t needed (Day 1, section 8).
+\subsubsection{What calls what}
+The data methods and the command parser all depend on the “find the visible value” logic, and \code{serialize} depends on \code{keys} and \code{get}. Following the Day 6 triage rule, fix the transaction and lookup tests first: the others are built on top of them.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{After the timer}
+\begin{keybox}[Compare the two runs]
+Compare your Day 9 and Day 10 results: did you get faster? Which kind of bug cost you the most time? That’s what to drill in the remaining day.
+\end{keybox}
+Then read \code{solution/\allowbreak{}BUGS.md} and do the same review as yesterday: for every bug you missed, which test pointed at it, and what would have led you there faster?
+\Needspace{10\baselineskip}
+\unnumberedsection{Part 2 — Exam-day strategy (read the evening before)}
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Before}
+\begin{itemize}
+\item Test CodeSignal on the \textbf{same machine and network} you’ll use. Big monitor. Charger plugged in. Close Slack/mail/notifications.
+\item Have a sheet of paper and a pen. You’ll do hand computations (bytes, small examples).
+\item Sleep. Seriously — debugging speed drops sharply when you’re tired.
+\end{itemize}
+\Needspace{10\baselineskip}
+\unnumberedsubsection{The 120 minutes}
+The schedule below is the Day 6 workflow with time limits attached. The limits are there because, under pressure, it’s very easy to spend forty minutes on the first failure you happen to look at.
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.38}Y{1.62}@{}}
+\rowcolor{primary}
+\thd{Time} & \thd{What} \\ \hline
+\endhead
+0–10 & Read the whole spec. Skim the code top to bottom (what calls what). Skim test names. Run all tests, write down the baseline score. \\
+10–20 & Triage: list failing tests grouped by function. Identify the low-level helpers. \\
+20–100 & Fix loop: simplest failing test of the lowest-level function → hand-compute expected → find divergence → minimal fix → \textbf{re-run the full suite}. \\
+100–110 & Pick up the tests you skipped earlier. \\
+110–120 & Remove debug prints and \code{breakpoint(\allowbreak{})\allowbreak{}}s. Final full run. Don’t start risky refactors now. \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Rules of thumb}
+Each of these rules comes from a common way of losing points:
+\begin{enumerate}
+\item \textbf{The tests are the spec.} When unsure about formats (spaces, order, exception type), read the test.
+\item \textbf{Minimal diffs.} Planted bugs are 1-line changes. If you’re rewriting a whole function, stop and look again. (Exception: if a function is hopeless and small, rewriting it from the spec can be faster. Your call.)
+\item \textbf{One bug at a time, re-run every time.} Several bugs can hide each other. A fix that makes the score \emph{drop} is a signal (either the fix is wrong, or it uncovered another bug — check which tests changed).
+\item \textbf{Never let a test hang the suite.} If the run hangs, Ctrl-C and run classes one by one; look for a \code{while} loop whose index doesn’t advance, or something growing without bound.
+\item \textbf{Time-box.} 10–15 minutes without progress → note it and move on.
+\item \textbf{Score is all that counts.} No points for style. Don’t refactor, don’t add type hints, don’t clean up.
+\item \textbf{Check what you can in the REPL} (\code{python3}, \code{help(\allowbreak{}str.partition)\allowbreak{}}, \code{\textquotedbl{}é\textquotedbl{}.encode(\allowbreak{})\allowbreak{}}) instead of guessing.
+\end{enumerate}
+A word on rule 3, because “bugs hiding each other” is confusing the first time it happens. Suppose both \code{get\_stats} and \code{merge} are broken, and every training test uses both. You fix \code{get\_stats} correctly, and the score... doesn’t move, because \code{merge} still breaks those same tests. The temptation is to undo your fix, thinking it didn’t work. Don’t. If the change matches the spec, keep it, and check that the \emph{helper’s own} tests (\code{TestGetStats}) now pass. The bigger tests will turn green once the other bug is fixed too.
+\Needspace{10\baselineskip}
+\unnumberedsubsection{Last-minute cheat sheet}
+One line per trap from the course. If a line doesn’t make immediate sense, go back to the day it came from and reread that section.
+\Needspace{11\baselineskip}
+\begin{txtcode}
+range(a, b) excludes b          s[-0:] == s                 sort() -> None
+split() vs split(" ")           strip("ab") = char set     removeprefix() exists
+max(d, key=d.get): first on ties    sorted(key=(-count, name)) for desc/asc
+b[0] is int, b[0:1] is bytes    join bytes THEN decode      len(s) != len(s.encode())
+0xxxxxxx | 110xxxxx 10xxxxxx | 1110xxxx 10.. 10.. | 11110xxx 10.. 10.. 10..
+cont: b & 0xC0 == 0x80   payload masks 1F/0F/07 lead, 3F continuation, shift 6
+mutable default arg / class attr / alias vs copy / __eq__ without __hash__
+enumerate(x, start=1)    int.to_bytes(n, "big")    int.from_bytes(b, "big")
+python -m unittest -v 2>&1 | grep -E "FAIL|ERROR"     python -m unittest mod.Class.test
+breakpoint()   n s c r p ll w u d   b 42, i == 3   q
+\end{txtcode}
+Good luck.
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I completed the second 120-minute run and recorded my score.
+\item I compared Day 9 and Day 10: time per bug, missed patterns, score.
+\item I read the exam-day strategy and the last-minute cheat sheet.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Protect the score: minimal diffs, no refactors, no style points.
+\item Keep a 10-minute buffer to remove debug code and run the full suite.
+\item Use the cheat sheet for formats, not for logic you can derive.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

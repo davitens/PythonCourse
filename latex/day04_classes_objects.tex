@@ -1,0 +1,734 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{04}
+\renewcommand{\courseDayInt}{4}
+\renewcommand{\courseShort}{OBJECTS}
+\renewcommand{\courseTitle}{Classes, Objects\\\& Exceptions}
+\renewcommand{\courseSubtitle}{Classes, dunder methods, exceptions, and the object-model traps.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Objects and errors}
+\renewcommand{\courseFolder}{day04\_classes\_objects}
+\renewcommand{\courseEyebrow}{DAY 04\enspace\textcolor{rule}{\textperiodcentered}\enspace OBJECTS}
+\renewcommand{\courseTopics}{\topic{Classes}\topic{Dunders}\topic{Exceptions}\topic{Mutability}}
+\renewcommand{\courseNext}{Turn the page to Day 5.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{The broken algorithm in the exam will very likely be a class (a tokenizer, a cache, a parser, a store...). You must read and fix classes quickly, and know the object-model traps.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+The broken algorithm in the exam will very likely be a class (a tokenizer, a cache, a parser, a store...). You must read and fix classes quickly, and know the object-model traps.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why classes, and why they matter for the exam}
+So far, our data and our functions have lived separately: a list here, a function that processes it there. That’s fine for small tasks. But many programs need to \emph{remember things between calls}. A cache needs to remember what it has stored. A tokenizer needs to remember the vocabulary it has learned. A key-value store needs to remember which transactions are open. Passing all of that state around as separate variables quickly becomes unmanageable.
+A \textbf{class} solves this by bundling some data together with the functions that work on it. You can think of a class as a \emph{blueprint} or a \emph{cookie cutter}: it describes what every object of that kind has and can do. An \textbf{object} (also called an \textbf{instance}) is one actual thing made from that blueprint, with its own copy of the data.
+The exam’s broken program is very likely to be a class, because the algorithms that make good exams (tokenizers, caches, stores, parsers) all have state. Most bugs in class-based code come from one question: \textbf{which object does this piece of data belong to?} When data that should belong to one object is accidentally shared between several, you get strange, hard-to-explain failures. Today is about learning to see that.
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{Anatomy of a class}
+Let’s build up a small class step by step, then look at the whole thing.
+\Needspace{10\baselineskip}
+\subsection{A first class}
+\Needspace{8\baselineskip}
+\begin{pycode}
+class Counter:
+    def __init__(self):
+        self.value = 0
+
+    def increment(self):
+        self.value += 1
+        return self.value
+\end{pycode}
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> c = Counter()        # create an object from the blueprint
+>>> c.increment()
+1
+>>> c.increment()
+2
+>>> d = Counter()        # a second, independent object
+>>> d.increment()
+1
+>>> c.value              # c kept its own value
+2
+\end{txtcode}
+Here’s what’s going on:
+\begin{itemize}
+\item \code{class\ Counter:\allowbreak{}} defines the blueprint. Nothing is created yet.
+\item \code{c\ =\allowbreak{}\ Counter(\allowbreak{})\allowbreak{}} creates a new object. Python makes an empty object and then automatically calls the special method \code{\_\_init\_\_} on it, whose job is to set up the starting state. Here, it gives the object a \code{value} of 0.
+\item \code{c.increment(\allowbreak{})\allowbreak{}} calls a \textbf{method}, a function that belongs to the class. Calling it on \code{c} makes it work on \code{c}’s data.
+\item \code{c} and \code{d} are separate objects, each with its own \code{value}.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{What \code{self} is}
+Every method takes \code{self} as its first parameter. \code{self} is \textbf{the object the method was called on}. When you write \code{c.increment(\allowbreak{})\allowbreak{}}, Python actually runs \code{Counter.increment(\allowbreak{}c)\allowbreak{}}, so inside the method \code{self} \emph{is} \code{c}. That’s how the method knows which object’s data to change.
+\code{self.value} means “the \code{value} belonging to this particular object”. Data stored like this is called an \textbf{instance attribute}: each instance has its own.
+\Needspace{10\baselineskip}
+\subsection{A fuller example}
+Now the full example. Read it slowly, because every later section builds on these pieces.
+\Needspace{16\baselineskip}
+\begin{pycode}
+class Account:
+    bank_name = "PyBank"          # CLASS attribute: shared by all instances
+
+    def __init__(self, owner, balance=0):
+        self.owner = owner        # INSTANCE attributes: one per object
+        self.balance = balance
+        self.history = []         # create mutable state HERE, per instance
+
+    def deposit(self, amount):    # instance method: first param is self
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        self.balance += amount
+        self.history.append(("deposit", amount))
+        return self.balance
+
+    def __repr__(self):
+        return f"Account({self.owner!r}, {self.balance})"
+\end{pycode}
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> acc = Account("ana", 100)
+>>> acc.deposit(50)
+150
+>>> acc.history
+[('deposit', 50)]
+>>> acc
+Account('ana', 150)
+>>> acc.bank_name
+'PyBank'
+\end{txtcode}
+Line by line:
+\begin{itemize}
+\item \textbf{\code{bank\_name\ =\allowbreak{}\ \textquotedbl{}PyBank\textquotedbl{}}} is written directly inside the class, not inside a method. That makes it a \textbf{class attribute}: it belongs to the class itself and is shared by every account. That’s appropriate for a constant like the bank’s name.
+\item \textbf{\code{\_\_init\_\_(\allowbreak{}self,\allowbreak{}\ owner,\allowbreak{}\ balance=\allowbreak{}0)\allowbreak{}}} receives the arguments given in \code{Account(\allowbreak{}\textquotedbl{}ana\textquotedbl{},\allowbreak{}\ 100)\allowbreak{}}. \code{balance=\allowbreak{}0} is a default, so \code{Account(\allowbreak{}\textquotedbl{}ben\textquotedbl{})\allowbreak{}} also works.
+\item \textbf{\code{self.owner\ =\allowbreak{}\ owner}} and \textbf{\code{self.balance\ =\allowbreak{}\ balance}} store the arguments on the new object.
+\item \textbf{\code{self.history\ =\allowbreak{}\ []}} gives \emph{each account its own} empty list. Section 2 explains why it has to be created here and not somewhere else.
+\item \textbf{\code{deposit}} follows a shape you’ll see over and over in exam code: first \emph{validate} the input (refuse a negative amount by raising an error, see section 7), then \emph{change the state}, then \emph{return} something. Bugs often sit in one of those three steps: a wrong comparison in the validation, the wrong attribute being changed, or the wrong thing returned.
+\item \textbf{\code{\_\_repr\_\_}} controls how the object is displayed in the REPL and in test failure messages. Without it you’d see something useless like \code{\textless{}\allowbreak{}\_\_main\_\_.Account\ object\ at\ 0x7f3a2c\textgreater{}\allowbreak{}}. With it, a failed test shows \code{Account(\allowbreak{}'ana',\allowbreak{}\ 150)\allowbreak{}}, which tells you the state at a glance.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Forgetting \code{self.}}
+\begin{trapbox}[Missing self]
+Forgetting \code{self.} is a classic bug: \code{balance\ +=\allowbreak{}\ amount} inside a method raises \code{UnboundLocalError}, and \code{history\ =\allowbreak{}\ []} creates a local variable that disappears.
+\end{trapbox}
+Inside a method, a name \emph{without} \code{self.} refers to an ordinary local variable of that method, which exists only while the method runs. So:
+\Needspace{2\baselineskip}
+\begin{pycode}
+    def deposit(self, amount):
+        balance += amount            # BUG: which balance? There's no local variable called balance.
+\end{pycode}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> acc.deposit(50)
+UnboundLocalError: cannot access local variable 'balance' where it is not associated with a value
+\end{txtcode}
+That one at least crashes loudly. This version is worse:
+\Needspace{2\baselineskip}
+\begin{pycode}
+    def reset_history(self):
+        history = []                 # BUG: creates a local list, which is thrown away when the method ends
+\end{pycode}
+It runs without any error, but \code{self.history} never changes. If an object’s state “doesn’t stick”, look for a missing \code{self.}.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{The two big sharing traps}
+Both traps below are the same underlying problem: \textbf{one list (or dict) ends up shared by many objects}, when each object was supposed to have its own. They’re among the most common planted bugs in class-based code.
+\Needspace{10\baselineskip}
+\subsection{Trap 1: a list stored as a class attribute}
+\Needspace{9\baselineskip}
+\begin{pycode}
+class Classroom:
+    students = []                 # BUG: one list for ALL classrooms
+
+    def __init__(self, name):
+        self.name = name
+
+    def enrol(self, student):
+        self.students.append(student)
+\end{pycode}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> maths = Classroom("maths")
+>>> art = Classroom("art")
+>>> maths.enrol("Ana")
+>>> art.students
+['Ana']
+\end{txtcode}
+We enrolled Ana in maths and she appeared in art.
+Here’s why. When you read \code{self.students}, Python first looks for an attribute called \code{students} on the object itself. Nothing was ever assigned to \code{self.students}, so it doesn’t find one there, and it falls back to the class attribute. There is only one class attribute, shared by every classroom. \code{append} modifies that single list.
+The fix is to create the list inside \code{\_\_init\_\_}, so each object gets its own:
+\Needspace{2\baselineskip}
+\begin{pycode}
+    def __init__(self, name):
+        self.name = name
+        self.students = []
+\end{pycode}
+Class attributes are fine for values you never modify in place, like numbers, strings and constants. The problem is specifically \emph{mutable} values (lists, dicts, sets) that are changed with methods like \code{append}.
+\Needspace{10\baselineskip}
+\subsection{Trap 2: a mutable default argument}
+This one surprises even experienced programmers.
+\Needspace{2\baselineskip}
+\begin{pycode}
+class Order:
+    def __init__(self, lines=[]):      # BUG
+        self.lines = lines
+\end{pycode}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> o1 = Order()
+>>> o1.lines.append("2 x coffee")
+>>> o2 = Order()
+>>> o2.lines
+['2 x coffee']
+\end{txtcode}
+A brand-new order already contains two coffees. Why? \textbf{Default values are created once, when Python first reads the \code{def} line, not each time the function is called.} So every call that doesn’t pass \code{lines} receives \emph{the same} list object. \code{o1} and \code{o2} share it.
+The standard fix is to use \code{None} as the default and create a fresh list inside the function:
+\Needspace{2\baselineskip}
+\begin{pycode}
+    def __init__(self, lines=None):
+        self.lines = list(lines) if lines is not None else []
+\end{pycode}
+Read the second line as: “if the caller gave us some lines, make a copy of them as a list; otherwise, start with a new empty list”. Whenever you see \code{=\allowbreak{}[]} or \code{=\allowbreak{}\{\}} in a function’s parameters, check it.
+\Needspace{10\baselineskip}
+\subsection{The quieter cousin: aliasing the caller’s list}
+\begin{notebox}[Aliasing the input]
+Also note \code{self.lines\ =\allowbreak{}\ lines} \emph{aliases} the caller’s list. If the spec says the object must not modify the input, copy it: \code{list(\allowbreak{}lines)\allowbreak{}}.
+\end{notebox}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> todo = ["milk"]
+>>> o = Order(todo)                 # with the version that does self.lines = lines
+>>> o.lines.append("bread")
+>>> todo
+['milk', 'bread']
+\end{txtcode}
+The caller’s own list changed behind their back, because \code{self.lines} and \code{todo} are two names for the same list (Day 1, “aliasing”). \code{list(\allowbreak{}lines)\allowbreak{}} makes an independent copy. As a bonus, it also accepts tuples and other sequences.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{Properties: attributes that run code}
+\Needspace{10\baselineskip}
+\subsection{The problem they solve}
+Sometimes you want an attribute that \emph{looks} like a normal value from the outside, but you want some code to run when it’s read or changed. Two typical reasons:
+\begin{itemize}
+\item \textbf{validation:} refuse invalid values, for example a percentage above 100;
+\item \textbf{computed values:} a value calculated from other data whenever it’s read, so it can never be out of date.
+\end{itemize}
+A \textbf{property} does this. To the user of the class, \code{p.value} and \code{p.value\ =\allowbreak{}\ 20} look like plain attribute access, but behind the scenes they call methods.
+\Needspace{16\baselineskip}
+\begin{pycode}
+class Percentage:
+    def __init__(self, value):
+        self.value = value                # goes through the setter below
+
+    @property
+    def value(self):
+        return self._value                # underscore: the real storage
+
+    @value.setter
+    def value(self, new):
+        if not 0 <= new <= 100:
+            raise ValueError("a percentage must be between 0 and 100")
+        self._value = new                 # writing self.value here = infinite recursion
+
+    @property
+    def fraction(self):                   # computed, read-only
+        return self._value / 100
+\end{pycode}
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> p = Percentage(20)
+>>> p.value
+20
+>>> p.fraction
+0.2
+>>> p.value = 75
+>>> p.fraction             # automatically up to date
+0.75
+>>> p.value = 120
+ValueError: a percentage must be between 0 and 100
+\end{txtcode}
+How the pieces fit together:
+\begin{itemize}
+\item \code{@property} is a \textbf{decorator}: a line starting with \code{@} placed above a \code{def}, which changes how that function behaves. Here it turns the method \code{value} into something that runs when you \emph{read} \code{p.value}.
+\item \code{@value.setter} marks the method that runs when you \emph{assign} \code{p.value\ =\allowbreak{}\ something}.
+\item The real number is stored under a different name, \code{\_value}. The leading underscore is a convention meaning “internal, don’t touch from outside the class”.
+\item \code{fraction} has no setter, so it’s read-only: \code{p.fraction\ =\allowbreak{}\ 0.5} raises an error.
+\end{itemize}
+Two details are worth checking in exam code:
+\begin{itemize}
+\item In \code{\_\_init\_\_}, \code{self.value\ =\allowbreak{}\ value} goes \emph{through the setter}, so the validation also applies when the object is created. If it were written \code{self.\_value\ =\allowbreak{}\ value}, invalid values would slip in at creation time.
+\item Inside the setter, the number must be stored in \code{self.\_value}. If the setter wrote \code{self.value\ =\allowbreak{}\ new}, that would call the setter again, which would call it again, and so on until Python gives up with a \code{RecursionError}.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{\code{classmethod} and \code{staticmethod}}
+Normal methods receive the object as \code{self}. Two decorators change that.
+\Needspace{10\baselineskip}
+\subsection{\code{@classmethod}: alternative ways to create an object}
+A class method receives the \textbf{class} itself (by convention called \code{cls}) instead of an object. Its main use is providing extra ways of building an object, for example from a string or a saved file:
+\Needspace{9\baselineskip}
+\begin{pycode}
+class Point:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+    @classmethod
+    def from_string(cls, s):     # alternative constructor; cls is the class
+        x, y = s.split(",")
+        return cls(int(x), int(y))
+\end{pycode}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> p = Point.from_string("3,4")
+>>> p.x, p.y
+(3, 4)
+\end{txtcode}
+\code{from\_string} parses the text and then calls \code{cls(\allowbreak{}...)\allowbreak{}}, which is the same as calling \code{Point(\allowbreak{}...)\allowbreak{}}, so \code{\_\_init\_\_} runs as usual. You’ll meet this pattern in the exams as \code{Tokenizer.load(\allowbreak{}text)\allowbreak{}} or \code{KVStore.deserialize(\allowbreak{}data)\allowbreak{}}: a method you call on the class to rebuild an object from a saved format.
+\Needspace{10\baselineskip}
+\subsection{\code{@staticmethod}: a plain function kept inside the class}
+A static method receives neither the object nor the class. It’s just an ordinary function that lives in the class for tidiness, because it’s logically related:
+\Needspace{2\baselineskip}
+\begin{pycode}
+class Point:
+    @staticmethod
+    def distance(a, b):          # no self/cls: just a function in the class namespace
+        return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
+\end{pycode}
+You call it as \code{Point.distance(\allowbreak{}p,\allowbreak{}\ q)\allowbreak{}}.
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Special (“dunder”) methods}
+\Needspace{10\baselineskip}
+\subsection{What they are}
+You’ve already met two methods with funny names: \code{\_\_init\_\_} and \code{\_\_repr\_\_}. Methods whose names start and end with two underscores are called \textbf{dunder methods} (“double underscore”), or \emph{magic methods}. You never call them directly. Python calls them for you when you use certain built-in syntax on your object.
+For example, if your class defines \code{\_\_len\_\_}, then \code{len(\allowbreak{}obj)\allowbreak{}} works on it. If it defines \code{\_\_eq\_\_}, then \code{obj1\ =\allowbreak{}=\allowbreak{}\ obj2} uses your rule for equality. This is how a custom class, like a cache or a linked list, can behave like a built-in list or dict.
+This matters in the exam because tests often use that built-in syntax: \code{len(\allowbreak{}cache)\allowbreak{}}, \code{key\ in\ store}, \code{list(\allowbreak{}tokens)\allowbreak{}}, \code{a\ =\allowbreak{}=\allowbreak{}\ b}. If the dunder method behind the syntax has a bug, those tests fail, even though the line in the test looks completely innocent.
+\Needspace{10\baselineskip}
+\subsection{The important ones}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.80}Y{0.78}Y{1.42}@{}}
+\rowcolor{primary}
+\thd{Method} & \thd{Called by} & \thd{Notes} \\ \hline
+\endhead
+\code{\_\allowbreak{}\_\allowbreak{}init\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self,\allowbreak{}\ .\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}} & \code{Cls(\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}} & returns None \\
+\code{\_\allowbreak{}\_\allowbreak{}repr\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{repr(\allowbreak{}x)\allowbreak{}}, REPL, inside lists & unambiguous; tests often check its exact format \\
+\code{\_\allowbreak{}\_\allowbreak{}str\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{str(\allowbreak{}x)\allowbreak{}}, \code{print(\allowbreak{}x)\allowbreak{}}, f-string & falls back to \code{\_\allowbreak{}\_\allowbreak{}repr\_\allowbreak{}\_\allowbreak{}} \\
+\code{\_\allowbreak{}\_\allowbreak{}eq\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self,\allowbreak{}\ other)\allowbreak{}} & \code{=\allowbreak{}=\allowbreak{}} & return \code{NotImplemented} for foreign types \\
+\code{\_\allowbreak{}\_\allowbreak{}hash\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{hash(\allowbreak{})\allowbreak{}}, set/dict keys & \textbf{defining \code{\_\allowbreak{}\_\allowbreak{}eq\_\allowbreak{}\_\allowbreak{}} sets \code{\_\allowbreak{}\_\allowbreak{}hash\_\allowbreak{}\_\allowbreak{}} to None!} \\
+\code{\_\allowbreak{}\_\allowbreak{}lt\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self,\allowbreak{}\ other)\allowbreak{}} & \code{\textless{}\allowbreak{}}, \code{sorted(\allowbreak{})\allowbreak{}} & \code{sorted} only needs \code{\_\allowbreak{}\_\allowbreak{}lt\_\allowbreak{}\_\allowbreak{}} \\
+\code{\_\allowbreak{}\_\allowbreak{}len\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{len(\allowbreak{}x)\allowbreak{}}, truthiness & must return int ≥ 0 \\
+\code{\_\allowbreak{}\_\allowbreak{}bool\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{if\ x:\allowbreak{}} &  \\
+\code{\_\allowbreak{}\_\allowbreak{}iter\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self)\allowbreak{}} & \code{for\ v\ in\ x}, \code{list(\allowbreak{}x)\allowbreak{}} & often written as a generator with \code{yield} \\
+\code{\_\allowbreak{}\_\allowbreak{}getitem\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self,\allowbreak{}\ i)\allowbreak{}} & \code{x[\allowbreak{}i]\allowbreak{}} & raise \code{IndexError} / \code{KeyError} \\
+\code{\_\allowbreak{}\_\allowbreak{}setitem\_\allowbreak{}\_\allowbreak{}}, \code{\_\allowbreak{}\_\allowbreak{}delitem\_\allowbreak{}\_\allowbreak{}} & \code{x[\allowbreak{}i]\allowbreak{}\ =\allowbreak{}\ v}, \code{del\ x[\allowbreak{}i]\allowbreak{}} &  \\
+\code{\_\allowbreak{}\_\allowbreak{}contains\_\allowbreak{}\_\allowbreak{}(\allowbreak{}self,\allowbreak{}\ v)\allowbreak{}} & \code{v\ in\ x} &  \\
+\code{\_\allowbreak{}\_\allowbreak{}add\_\allowbreak{}\_\allowbreak{}}, \code{\_\allowbreak{}\_\allowbreak{}sub\_\allowbreak{}\_\allowbreak{}}, \code{\_\allowbreak{}\_\allowbreak{}mul\_\allowbreak{}\_\allowbreak{}} & \code{+\ -\ *} & \code{\_\allowbreak{}\_\allowbreak{}rmul\_\allowbreak{}\_\allowbreak{}} for \code{3\ *\ v} \\
+\hline
+\end{xltabular}
+\end{datatable}
+The rows that need some explanation:
+\begin{itemize}
+\item \textbf{\code{\_\_repr\_\_} vs \code{\_\_str\_\_}.} \code{\_\_repr\_\_} is the developer-facing description (ideally it looks like the code that would recreate the object). \code{\_\_str\_\_} is the user-facing one, used by \code{print}. If a class only defines \code{\_\_repr\_\_}, Python uses it for both.
+\end{itemize}
+\begin{itemize}
+\item \textbf{\code{\_\_eq\_\_} and \code{NotImplemented}.} By default, \code{a\ =\allowbreak{}=\allowbreak{}\ b} on two objects is only true if they’re the \emph{very same} object. Defining \code{\_\_eq\_\_} lets you say “two points are equal if their coordinates are equal”. If \code{other} is something unrelated (say, a string), the convention is to return the special value \code{NotImplemented}, which tells Python “I don’t know how to compare with that”. Python then tries other options and finally answers \code{False}.
+\end{itemize}
+\begin{itemize}
+\item \textbf{Why defining \code{\_\_eq\_\_} breaks hashing.} Sets and dict keys rely on a rule: \emph{two objects that are equal must have the same hash} (section 5 of Day 3). Python’s default hash is based on the object’s identity. Once you’ve said that two \emph{different} objects can be equal, that default would break the rule. So Python removes it, and your objects can no longer go into a set:
+\end{itemize}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+  >>> {Money(5, "EUR")}        # a Money class with __eq__ but no __hash__
+  TypeError: unhashable type: 'Money'
+\end{txtcode}
+The fix is to also define \code{\_\_hash\_\_}, built from \emph{the same fields} that \code{\_\_eq\_\_} compares (see the example below).
+\begin{itemize}
+\item \textbf{\code{\_\_len\_\_} and truthiness.} If a class doesn’t define \code{\_\_bool\_\_}, \code{if\ obj:\allowbreak{}} falls back to \code{len(\allowbreak{}obj)\allowbreak{}\ !=\allowbreak{}\ 0}. So an empty cache object is \emph{falsy}. Code that writes \code{if\ cache:\allowbreak{}} meaning “if the cache exists” will be surprised when the cache simply happens to be empty. That’s the same “zero vs nothing” trap from Day 1.
+\end{itemize}
+\begin{itemize}
+\item \textbf{\code{\_\_contains\_\_}} is what \code{in} calls. If it’s missing, Python falls back to looping through \code{\_\_iter\_\_}. A \code{\_\_contains\_\_} that has \emph{side effects} is a planted bug you’ll meet in drill 6. For example, it might call a \code{get} method that also updates internal bookkeeping, so merely asking “is this in here?” changes the object.
+\end{itemize}
+\begin{itemize}
+\item \textbf{\code{\_\_rmul\_\_}.} \code{v\ *\ 3} calls \code{v.\_\_mul\_\_(\allowbreak{}3)\allowbreak{}}. But \code{3\ *\ v} first asks the integer 3 to multiply itself by a \code{v}, which it doesn’t know how to do, so Python then calls \code{v.\_\_rmul\_\_(\allowbreak{}3)\allowbreak{}}, the “reflected” version.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{A worked example}
+Here’s a small class that uses several of these together:
+\Needspace{11\baselineskip}
+\begin{pycode}
+class Vector:
+    def __init__(self, x, y): self.x, self.y = x, y
+    def __eq__(self, other):
+        if not isinstance(other, Vector):
+            return NotImplemented
+        return (self.x, self.y) == (other.x, other.y)
+    def __hash__(self):
+        return hash((self.x, self.y))
+    def __iter__(self):
+        yield self.x
+        yield self.y
+\end{pycode}
+\Needspace{8\baselineskip}
+\begin{txtcode}
+>>> Vector(1, 2) == Vector(1, 2)
+True
+>>> len({Vector(1, 2), Vector(1, 2)})     # equal vectors count once in a set
+1
+>>> x, y = Vector(3, 4)                   # unpacking works because of __iter__
+>>> list(Vector(3, 4))
+[3, 4]
+\end{txtcode}
+\begin{itemize}
+\item \code{isinstance(\allowbreak{}other,\allowbreak{}\ Vector)\allowbreak{}} checks whether \code{other} is a \code{Vector} (or a subclass of it, see section 6).
+\item \code{\_\_eq\_\_} compares the coordinates by packing them into tuples, a neat way of comparing several fields at once.
+\item \code{\_\_hash\_\_} hashes \emph{the same tuple}, so equal vectors are guaranteed to have equal hashes.
+\item \code{\_\_iter\_\_} uses \code{yield}, which is explained in section 8.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{Inheritance}
+\textbf{Inheritance} lets you define a new class based on an existing one. The new class (the \emph{subclass}) automatically gets all the methods of the original (the \emph{base class}), and can add new ones or replace some with its own version. Replacing a method is called \textbf{overriding} it.
+\Needspace{12\baselineskip}
+\begin{pycode}
+class Animal:
+    def __init__(self, name):
+        self.name = name
+    def sound(self):
+        raise NotImplementedError
+
+class Dog(Animal):
+    def __init__(self, name, breed):
+        super().__init__(name)        # forgetting this => no self.name => AttributeError
+        self.breed = breed
+    def sound(self):
+        return "woof"
+\end{pycode}
+\Needspace{8\baselineskip}
+\begin{txtcode}
+>>> rex = Dog("Rex", "beagle")
+>>> rex.sound()
+'woof'
+>>> rex.name
+'Rex'
+>>> isinstance(rex, Animal)
+True
+\end{txtcode}
+\begin{itemize}
+\item \code{class\ Dog(\allowbreak{}Animal)\allowbreak{}} declares that a \code{Dog} is a kind of \code{Animal}. That’s why \code{isinstance(\allowbreak{}rex,\allowbreak{}\ Animal)\allowbreak{}} is \code{True}.
+\item \code{Animal.sound} raises \code{NotImplementedError}. That’s a conventional way of saying “every kind of animal must provide its own \code{sound}”.
+\item \code{Dog} defines its own \code{\_\_init\_\_}, which \emph{replaces} \code{Animal.\_\_init\_\_}. The base class’s setup (storing \code{self.name}) would therefore never run on its own. \code{super(\allowbreak{})\allowbreak{}.\_\_init\_\_(\allowbreak{}name)\allowbreak{}} calls it explicitly. If that line were missing, \code{rex.name} would fail with \code{AttributeError:\allowbreak{}\ 'Dog'\ object\ has\ no\ attribute\ 'name'}.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{Exceptions: signalling that something went wrong}
+\Needspace{10\baselineskip}
+\subsection{What an exception is}
+An \textbf{exception} is Python’s way of saying “something went wrong, and I can’t carry on normally”. When one is \textbf{raised}, the current function stops immediately. The exception travels back up through whichever functions called it, until some code \textbf{catches} it. If nothing catches it, the program stops and prints a traceback.
+You’ve already seen several built-in exceptions: \code{KeyError}, \code{IndexError}, \code{TypeError}, \code{ValueError}. You can also raise them yourself, with a message explaining what went wrong:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def withdraw(self, amount):
+    if amount > self.balance:
+        raise ValueError(f"cannot withdraw {amount!r}: balance is {self.balance}")
+    self.balance -= amount
+\end{pycode}
+Specs often say exactly which exception must be raised and when: “raises \code{ValueError} on malformed input”, “raises \code{KeyError} if the key doesn’t exist”. Tests check this with \code{assertRaises} (Day 1, section 7), so raising the wrong type, or not raising at all, fails the test.
+\Needspace{10\baselineskip}
+\subsection{Catching exceptions: \code{try} / \code{except}}
+\Needspace{15\baselineskip}
+\begin{pycode}
+class InsufficientFunds(Exception):     # custom exception = subclass of Exception
+    pass
+
+try:
+    risky()
+except (KeyError, IndexError) as e:     # catch specific exceptions
+    handle(e)
+except ValueError:
+    raise                               # re-raise the same exception
+else:
+    runs_if_no_exception()
+finally:
+    always_runs()
+
+raise ValueError(f"bad value: {x!r}")
+\end{pycode}
+Piece by piece:
+\begin{itemize}
+\item \textbf{Custom exceptions.} \code{class\ InsufficientFunds(\allowbreak{}Exception)\allowbreak{}:\allowbreak{}\ pass} creates your own kind of error. It inherits from \code{Exception}, and that’s all it needs (\code{pass} means “nothing else to add”). It lets callers catch your specific error without catching unrelated ones.
+\item \textbf{\code{try:\allowbreak{}}} contains the code that might fail.
+\item \textbf{\code{except\ (\allowbreak{}KeyError,\allowbreak{}\ IndexError)\allowbreak{}\ as\ e:\allowbreak{}}} runs if one of the listed kinds of error happens inside the \code{try}. \code{e} is the exception object, which holds the message. Python checks the \code{except} clauses from top to bottom and runs the first one that matches.
+\item \textbf{\code{raise}} on its own, inside an \code{except}, re-raises the same exception. You use it when you want to react (for example undo something) but still let the error continue upward.
+\item \textbf{\code{else:\allowbreak{}}} runs only if the \code{try} block raised nothing.
+\item \textbf{\code{finally:\allowbreak{}}} always runs, error or not. It’s used for cleanup.
+\end{itemize}
+Here’s a concrete example of catching:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> def safe_int(text):
+...     try:
+...         return int(text)
+...     except ValueError:
+...         return None
+...
+>>> safe_int("42")
+42
+>>> safe_int("forty-two")
+>>>
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{What \code{assertRaises} really checks}
+\begin{itemize}
+\item Tests use \code{with\ self.assertRaises(\allowbreak{}ValueError)\allowbreak{}:\allowbreak{}} — the exact \textbf{type} matters; a subclass also matches (\code{InsufficientFunds(\allowbreak{}ValueError)\allowbreak{}} would satisfy \code{assertRaises(\allowbreak{}ValueError)\allowbreak{}}).
+\item A bare \code{except:\allowbreak{}} or \code{except\ Exception:\allowbreak{}} that swallows errors is a common planted bug: the test expects an exception but the code returns \code{None} instead.
+\item \code{KeyError} is a subclass of \code{LookupError}, as is \code{IndexError}.
+\end{itemize}
+Exceptions form a family tree. \code{KeyError} and \code{IndexError} are both kinds of \code{LookupError}, and nearly everything is a kind of \code{Exception}. An \code{except} clause catches the type you name \emph{and all its descendants}. That’s why \code{except\ Exception:\allowbreak{}} is dangerous: it catches almost everything, including the errors a spec \emph{requires} to escape. Here’s how that turns into a bug:
+\Needspace{7\baselineskip}
+\begin{pycode}
+def parse_age(text):
+    """Return the age as an int. Raise ValueError if text is not a number."""
+    try:
+        return int(text)
+    except Exception:
+        return None          # BUG: the spec wants the ValueError to reach the caller
+\end{pycode}
+The test \code{with\ self.assertRaises(\allowbreak{}ValueError)\allowbreak{}:\allowbreak{}\ parse\_age(\allowbreak{}\textquotedbl{}abc\textquotedbl{})\allowbreak{}} fails, because the function quietly returns \code{None} instead.
+\Needspace{10\baselineskip}
+\setcounter{section}{7}
+\section{Generators: producing values one at a time}
+\Needspace{10\baselineskip}
+\subsection{What \code{yield} does}
+A function that contains the word \code{yield} is a \textbf{generator function}. It works differently from a normal function. Calling it doesn’t run its body. Instead, it gives you a \emph{generator}: an object that produces values lazily, one at a time, whenever something asks for the next one (a \code{for} loop, \code{list(\allowbreak{})\allowbreak{}}, ...). Each \code{yield} hands out one value and \emph{pauses} the function, keeping all its local variables. When the next value is requested, it resumes right after the \code{yield}.
+\Needspace{2\baselineskip}
+\begin{pycode}
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+\end{pycode}
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> for x in countdown(3):
+...     print(x)
+...
+3
+2
+1
+>>> list(countdown(3))
+[3, 2, 1]
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Why it’s useful for classes}
+This is the easiest way to write \code{\_\_iter\_\_} for your own container, which is what makes \code{for\ item\ in\ my\_object} work. You don’t need to build a list or write a separate class. You just walk through your internal data and \code{yield} each item. For a linked list (see the exercises), that’s:
+\Needspace{7\baselineskip}
+\begin{pycode}
+def __iter__(self):
+    node = self.head
+    while node is not None:
+        yield node.value
+        node = node.next
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{One pass only}
+\begin{trapbox}[One-shot generators]
+A generator is exhausted after one pass: \code{g\ =\allowbreak{}\ countdown(\allowbreak{}3)\allowbreak{};\allowbreak{}\ list(\allowbreak{}g)\allowbreak{};\allowbreak{}\ list(\allowbreak{}g)\allowbreak{}} → \code{[3,\allowbreak{}2,\allowbreak{}1]}, \code{[]}.
+\end{trapbox}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> g = countdown(3)
+>>> list(g)
+[3, 2, 1]
+>>> list(g)
+[]
+\end{txtcode}
+Once a generator has given out all its values, it’s finished for good. A bug can hide here: if code stores a generator in a variable and loops over it twice (say, once to count the items and once to process them), the second loop silently sees nothing. When you need the values twice, turn them into a list first. (\code{\_\_iter\_\_} doesn’t have this problem: each new \code{for} loop calls \code{\_\_iter\_\_} again and gets a fresh generator.)
+\Needspace{10\baselineskip}
+\setcounter{section}{8}
+\section{Copying objects}
+The shallow vs. deep distinction from Day 3 applies to your own objects too:
+\Needspace{2\baselineskip}
+\begin{pycode}
+import copy
+b = copy.copy(a)        # shallow: new outer object, same inner objects
+b = copy.deepcopy(a)    # recursive
+\end{pycode}
+\code{copy.copy(\allowbreak{}acc)\allowbreak{}} creates a new \code{Account} object, but its \code{history} attribute points to \emph{the same list} as the original, so appending to one appends to both. \code{copy.deepcopy(\allowbreak{}acc)\allowbreak{}} copies the list too. You’ll need this distinction for features like “take a snapshot” or “start a transaction”, where a saved copy must stay unchanged while the live object keeps changing.
+\Needspace{10\baselineskip}
+\setcounter{section}{9}
+\section{The toolbox: techniques the exercises rely on}
+\Needspace{10\baselineskip}
+\subsection{\code{is} versus \code{=\allowbreak{}=\allowbreak{}}: the same object, or equal values?}
+Python has two ways of asking “are these the same?”, and they mean different things:
+\begin{itemize}
+\item \code{a\ =\allowbreak{}=\allowbreak{}\ b} asks: \textbf{do they have equal values?} (For your own classes, that’s whatever \code{\_\_eq\_\_} says.)
+\item \code{a\ is\ b} asks: \textbf{are they the very same object?} Two name tags on one thing (Day 1, aliasing).
+\end{itemize}
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> a = [1, 2]
+>>> b = [1, 2]
+>>> a == b          # same contents
+True
+>>> a is b          # but two separate lists
+False
+>>> c = a
+>>> c is a          # c is just another name for a
+True
+\end{txtcode}
+Use \code{is} in two situations:
+\begin{itemize}
+\item \textbf{Comparing with \code{None}}: always write \code{x\ is\ None} / \code{x\ is\ not\ None}, never \code{x\ =\allowbreak{}=\allowbreak{}\ None}. There’s only one \code{None} object, so \code{is} is the precise question, and it can’t be fooled by a class with a strange \code{\_\_eq\_\_}.
+\item \textbf{“Is this literally the same object?”}: for example, a transfer from an account to \emph{itself} should be rejected. \code{if\ other\ is\ self:\allowbreak{}} catches exactly that case. \code{other\ =\allowbreak{}=\allowbreak{}\ self} would also be true for two different accounts that happen to compare equal.
+\end{itemize}
+A trap related to section 2: \code{if\ items:\allowbreak{}} and \code{if\ items\ is\ not\ None:\allowbreak{}} are different. The first is false for an empty list, the second only for \code{None}. When a parameter’s default is \code{None} and the caller may pass an empty list, you want the second:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def __init__(self, items=None):
+    self.items = list(items) if items is not None else []
+\end{pycode}
+Read it as: “if the caller gave us something, make our own copy of it with \code{list(\allowbreak{}...)\allowbreak{}}; otherwise start with a fresh empty list”. The copy matters for the aliasing reason from section 2: we don’t want to share the caller’s list.
+\Needspace{10\baselineskip}
+\subsection{\code{any} and \code{all}}
+\code{any(\allowbreak{}...)\allowbreak{}} is \code{True} if \textbf{at least one} of the values is true; \code{all(\allowbreak{}...)\allowbreak{}} is \code{True} if \textbf{every} value is true. They’re almost always used with a generator expression (Day 1, section 8):
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> nums = [3, 8, 1]
+>>> any(n > 5 for n in nums)         # is there a number bigger than 5?
+True
+>>> all(n > 0 for n in nums)         # are they all positive?
+True
+>>> any(x == 7 for x in [])          # nothing to check: no
+False
+>>> all(x == 7 for x in [])          # nothing contradicts it: yes!
+True
+\end{txtcode}
+Both stop as soon as they know the answer: \code{any} at the first true value, \code{all} at the first false one. “Is \code{value} in my linked list?” is \code{any(\allowbreak{}v\ =\allowbreak{}=\allowbreak{}\ value\ for\ v\ in\ self)\allowbreak{}}, which works as soon as the class has an \code{\_\_iter\_\_}.
+\Needspace{10\baselineskip}
+\subsection{\code{iter(\allowbreak{})\allowbreak{}}, and two ways to write \code{\_\_iter\_\_}}
+\code{\_\_iter\_\_} must return an \textbf{iterator}: an object that hands out values one at a time to a \code{for} loop. There are two common ways to write it.
+\textbf{1. As a generator, with \code{yield}} (section 8). Calling a method that contains \code{yield} automatically produces an iterator:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def __iter__(self):
+    yield self.x
+    yield self.y
+\end{pycode}
+\textbf{2. By handing over the iterator of a list you already have}, with the built-in \code{iter(\allowbreak{})\allowbreak{}}:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def __iter__(self):
+    return iter(self.songs)     # "loop over me = loop over my songs list"
+\end{pycode}
+\code{iter(\allowbreak{}some\_list)\allowbreak{}} returns an iterator over that list. Don’t mix the two styles: \code{yield\ self.songs} would hand out the \emph{whole list} as one single value, so \code{list(\allowbreak{}playlist)\allowbreak{}} would be \code{[['a',\allowbreak{}\ 'b']]} instead of \code{['a',\allowbreak{}\ 'b']}.
+\Needspace{10\baselineskip}
+\subsection{Vector length: \code{**} and \code{\_\_abs\_\_}}
+\code{**} is “to the power of”: \code{3\ **\ 2} is 9, and \code{x\ **\ 0.5} is the square root of \code{x} (the power ½). The length of a vector \code{(\allowbreak{}x,\allowbreak{}\ y)\allowbreak{}} is, by Pythagoras, \code{(\allowbreak{}x\ **\ 2\ +\ y\ **\ 2)\allowbreak{}\ **\ 0.5}; for \code{(\allowbreak{}3,\allowbreak{}\ 4)\allowbreak{}} that’s \code{(\allowbreak{}9\ +\ 16)\allowbreak{}\ **\ 0.5\ =\allowbreak{}\ 5.0}.
+\code{abs(\allowbreak{}obj)\allowbreak{}} calls \code{obj.\_\_abs\_\_(\allowbreak{})\allowbreak{}}, the dunder for “absolute value”, which for a vector naturally means its length. The same pattern as \code{len(\allowbreak{}obj)\allowbreak{}} → \code{\_\_len\_\_}.
+\Needspace{10\baselineskip}
+\subsection{Updating two variables at once: \code{prev,\allowbreak{}\ cur\ =\allowbreak{}\ cur,\allowbreak{}\ cur.next}}
+Unpacking (Day 1, section 8) has a property that’s essential for linked lists: \textbf{the whole right-hand side is computed first, then assigned}. So
+\Needspace{2\baselineskip}
+\begin{pycode}
+prev, cur = cur, cur.next
+\end{pycode}
+means “the new \code{prev} is the old \code{cur}, and the new \code{cur} is the old \code{cur.next}”, both based on the values \emph{before} the line ran. Written as two lines, \code{prev\ =\allowbreak{}\ cur} then \code{cur\ =\allowbreak{}\ cur.next}, it happens to work too. But the order of the lines would matter, and swapping them breaks it. The one-line form can’t be got wrong that way.
+\Needspace{10\baselineskip}
+\subsection{Working with a linked list}
+A linked list (what it is: see the ex03 background under “Exercises” below) keeps a reference to its first node, \code{head}, and usually also its last node, \code{tail}, so adding at the end doesn’t require walking the whole chain. Most operations are short, but each has one or two edge cases, nearly always “the list is empty” or “the list has exactly one node”. Draw the boxes and arrows on paper and check those cases for every method.
+\textbf{Walking the list.} Start at the head and follow \code{next} until you fall off the end (\code{None}):
+\Needspace{2\baselineskip}
+\begin{pycode}
+cur = self.head
+while cur is not None:
+    ... cur.value ...
+    cur = cur.next
+\end{pycode}
+\textbf{Adding at the end} (with a tail reference): link the new node after the current tail, then move \code{tail} to it. If the list was empty, the new node is both the head and the tail.
+\textbf{Adding at the front:} the new node’s \code{next} is the old head, and the new node becomes the head. \code{Node(\allowbreak{}value,\allowbreak{}\ self.head)\allowbreak{}} does the first half, because \code{Node}’s second parameter is \code{next}. If the list was empty, the new node is also the tail.
+\textbf{Removing a node} means making the node \emph{before} it skip over it: \code{prev.next\ =\allowbreak{}\ cur.next}. That’s why removal walks with two variables, \code{prev} and \code{cur}, one step apart. If the node to remove is the head, there is no \code{prev}, and you move \code{self.head} instead. If it’s the tail, \code{tail} must move back to \code{prev}.
+\textbf{Reversing} turns every arrow around. You walk along the list with \code{prev} and \code{cur}, and at each node you make it point back to \code{prev}. But once you change \code{cur.next} you’ve lost the way forward, so you must save it first:
+\Needspace{8\baselineskip}
+\begin{txtcode}
+start:   prev=None   cur=A       A -> B -> C -> None
+save nxt = B,  set A.next = None (prev),  move: prev=A, cur=B
+         None <- A    B -> C -> None
+save nxt = C,  set B.next = A,  move: prev=B, cur=C
+         None <- A <- B    C -> None
+save nxt = None,  set C.next = B,  move: prev=C, cur=None   (stop)
+         None <- A <- B <- C        the new head is prev = C
+\end{txtcode}
+Three steps per node, always in this order: \textbf{save next, turn the arrow, move both pointers forward}. Don’t forget that the old head becomes the new tail.
+\textbf{Negative indices.} To support \code{ll[-1]} like a normal list, turn a negative index into the equivalent positive one by adding the length: in a list of 5, \code{-1} becomes \code{4} and \code{-5} becomes \code{0}. Then check the range with a chained comparison (Day 1): \code{if\ not\ 0\ \textless{}\allowbreak{}=\allowbreak{}\ index\ \textless{}\allowbreak{}\ len(\allowbreak{}self)\allowbreak{}:\allowbreak{}\ raise\ IndexError(\allowbreak{}...)\allowbreak{}}.
+\Needspace{10\baselineskip}
+\subsection{Methods that return \code{self}}
+A method can end with \code{return\ self}, giving back the object it was called on. That allows \textbf{chaining} calls:
+\Needspace{2\baselineskip}
+\begin{pycode}
+playlist.add("a").add("b").add("c")    # each add returns the playlist, so the next add is called on it
+\end{pycode}
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 4} after every change; peek at \code{solutions/\allowbreak{}} only after 15 minutes stuck.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}bank.\allowbreak{}py} & implement & BankAccount with custom exception, history, transfer \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}vector.\allowbreak{}py} & implement & Vector2D with operators, hashing, iteration \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}linked\_\allowbreak{}list.\allowbreak{}py} & implement & LinkedList with \code{\_\allowbreak{}\_\allowbreak{}len\_\allowbreak{}\_\allowbreak{}/\allowbreak{}\_\allowbreak{}\_\allowbreak{}iter\_\allowbreak{}\_\allowbreak{}/\allowbreak{}\_\allowbreak{}\_\allowbreak{}getitem\_\allowbreak{}\_\allowbreak{}/\allowbreak{}\_\allowbreak{}\_\allowbreak{}contains\_\allowbreak{}\_\allowbreak{}}, reverse \\
+\code{exercises/\allowbreak{}ex04\_\allowbreak{}fix\_\allowbreak{}me.\allowbreak{}py} & \textbf{debug} & 6 classes, one bug each (the classic object-model traps) \\
+\hline
+\end{xltabular}
+\end{datatable}
+Background for each:
+\begin{itemize}
+\item \textbf{ex01} is a bank account with deposits, withdrawals and transfers between two accounts. Think about the transfer: if it fails halfway (not enough money), \emph{neither} account may have changed. So check everything first, and only then modify anything.
+\item \textbf{ex02} is a 2-D vector, a pair of numbers \code{(\allowbreak{}x,\allowbreak{}\ y)\allowbreak{}} that you can add, subtract and scale like arrows on a map. It practises operator dunders and the \code{\_\_eq\_\_}/\code{\_\_hash\_\_} pair from section 5.
+\item \textbf{ex03} is a \textbf{linked list}, a different way to store a sequence. Instead of one block of positions like a Python list, it’s a chain of small \code{Node} objects. Each node holds one value and a reference to the next node (\code{node.next}), and the list itself only remembers the first node (the \textbf{head}). The last node’s \code{next} is \code{None}. There are no positions, so to reach the 5th item you start at the head and follow \code{next} four times. \textbf{Reversing} the list means walking along it and turning every \code{next} arrow around, a classic exercise in updating references in the right order. This is the warm-up for the cache in drill 6, which uses a list where each node points both forward and backward.
+\item \textbf{ex04} has six small classes, each containing one of the traps from this document.
+\end{itemize}
+Which tools each part needs (section numbers in brackets):
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.40}Y{1.60}@{}}
+\rowcolor{primary}
+\thd{Exercise} & \thd{Tools} \\ \hline
+\endhead
+ex01 \code{BankAccount} & a custom exception class, \code{raise} (7), \code{other\ is\ self} (10), \code{history.\allowbreak{}append(\allowbreak{}(\allowbreak{}op,\allowbreak{}\ amount)\allowbreak{})\allowbreak{}}, \code{\_\allowbreak{}\_\allowbreak{}repr\_\allowbreak{}\_\allowbreak{}} with \code{!r} (5) \\
+ex02 \code{Vector2D} & \code{isinstance} and \code{NotImplemented} (5), \code{\_\allowbreak{}\_\allowbreak{}rmul\_\allowbreak{}\_\allowbreak{}} (5), \code{**} and \code{\_\allowbreak{}\_\allowbreak{}abs\_\allowbreak{}\_\allowbreak{}} (10), \code{\_\allowbreak{}\_\allowbreak{}hash\_\allowbreak{}\_\allowbreak{}} from a tuple (5), \code{\_\allowbreak{}\_\allowbreak{}iter\_\allowbreak{}\_\allowbreak{}} with \code{yield} (8) \\
+ex03 \code{LinkedList} & walking, adding and removing nodes, reversing (10), \code{prev,\allowbreak{}\ cur\ =\allowbreak{}\ cur,\allowbreak{}\ cur.\allowbreak{}next} (10), negative indices (10), \code{any} (10), \code{\_\allowbreak{}\_\allowbreak{}len\_\allowbreak{}\_\allowbreak{}}/\code{\_\allowbreak{}\_\allowbreak{}iter\_\allowbreak{}\_\allowbreak{}}/\code{\_\allowbreak{}\_\allowbreak{}contains\_\allowbreak{}\_\allowbreak{}}/\code{\_\allowbreak{}\_\allowbreak{}getitem\_\allowbreak{}\_\allowbreak{}} (5) \\
+ex04 fix-me & class attributes and mutable defaults (2), \code{x\ is\ not\ None} (10), \code{\_\allowbreak{}\_\allowbreak{}hash\_\allowbreak{}\_\allowbreak{}} (5), \code{super(\allowbreak{})\allowbreak{}.\allowbreak{}\_\allowbreak{}\_\allowbreak{}init\_\allowbreak{}\_\allowbreak{}} (6), property setters (3), \code{iter(\allowbreak{})\allowbreak{}} (10) \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 4
+\end{shcode}
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can spot a mutable class attribute or mutable default argument instantly.
+\item I know defining \code{\_\_eq\_\_} makes instances unhashable unless I add \code{\_\_hash\_\_}.
+\item I can write \code{\_\_iter\_\_} with \code{yield}.
+\item I know \code{super(\allowbreak{})\allowbreak{}.\_\_init\_\_(\allowbreak{}...)\allowbreak{}} must be called in a subclass that overrides \code{\_\_init\_\_}.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item The broken implementation is often a class: inspect \code{\_\_init\_\_}, shared state, and dunders first.
+\item A missing \code{super(\allowbreak{})\allowbreak{}.\_\_init\_\_} or a property setter that assigns to itself is a quick win.
+\item Match the exact exception type the tests expect; a subclass also satisfies \code{assertRaises}.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

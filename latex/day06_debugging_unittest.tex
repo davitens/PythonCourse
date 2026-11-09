@@ -1,0 +1,612 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{06}
+\renewcommand{\courseDayInt}{6}
+\renewcommand{\courseShort}{DEBUGGING}
+\renewcommand{\courseTitle}{unittest, pdb\\\& Debugging}
+\renewcommand{\courseSubtitle}{unittest, pdb, and a repeatable method for maximizing passing tests.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Debug method}
+\renewcommand{\courseFolder}{day06\_debugging\_unittest}
+\renewcommand{\courseEyebrow}{DAY 06\enspace\textcolor{rule}{\textperiodcentered}\enspace DEBUGGING}
+\renewcommand{\courseTopics}{\topic{unittest}\topic{pdb}\topic{Triage}\topic{Workflow}}
+\renewcommand{\courseNext}{Turn the page to Day 7.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Have a repeatable process for “here’s broken code and a test suite, maximise passing tests in 2h”. Today is about \emph{method}, not syntax.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Have a repeatable process for “here’s broken code and a test suite, maximise passing tests in 2h”. Today is about \emph{method}, not syntax.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why a method beats talent}
+Picture the exam. You open a 200-line file, run the tests, and 23 of 40 fail. Where do you start?
+Without a plan, most people do something like this: they read the first failing test, jump into the code, change something that looks suspicious, run the tests again, see a different number, change something else... After an hour they’re not sure which of their changes helped, one of them broke a test that used to pass, and they’ve spent forty minutes on one function.
+With a plan, you work like a detective. You find out which pieces of code the failures have in common. You pick the simplest failing case, work out by hand what the answer \emph{should} be, and watch the program step by step until the moment its state stops matching yours. That moment points at the bug. You fix one line, re-run \emph{everything}, and check the score went up. Then you repeat.
+Today gives you the three tools that method needs, and then the method itself:
+\begin{enumerate}
+\item \textbf{unittest}, in more depth than Day 1, so you can read any test file and run exactly the tests you want.
+\item \textbf{print debugging and pdb}, the two ways of seeing what’s happening inside a running program.
+\item \textbf{scratch scripts}, for trying things out quickly.
+\end{enumerate}
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{unittest in depth}
+You don’t write tests in the exam, but you must \emph{read} them quickly. Each test is the most precise statement there is of what the code must do: an exact input and an exact expected output. Here’s a test file using all the features you’re likely to meet. We’ll go through them one by one afterwards.
+\Needspace{17\baselineskip}
+\begin{pycode}
+import unittest
+
+class TestThing(unittest.TestCase):
+    maxDiff = None               # show FULL diffs of long lists/strings (default truncates!)
+
+    def setUp(self):             # runs before EACH test method
+        self.t = Tokenizer()
+
+    def tearDown(self): ...      # after each test
+
+    def test_something(self):    # only methods starting with test_ are run
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, b)
+        self.assertTrue(x); self.assertFalse(x)
+        self.assertIs(a, b); self.assertIsNone(x); self.assertIsNotNone(x)
+        self.assertIn(x, container); self.assertNotIn(x, container)
+        self.assertIsInstance(obj, cls)
+        self.assertAlmostEqual(0.1 + 0.2, 0.3)          # 7 decimal places
+        self.assertCountEqual([1, 2, 2], [2, 1, 2])      # same elements, any order
+        self.assertLess(a, b); self.assertGreaterEqual(a, b)
+        with self.assertRaises(ValueError):
+            f()
+        with self.assertRaises(KeyError) as ctx:
+            g()
+        self.assertEqual(ctx.exception.args[0], "x")
+        with self.assertRaisesRegex(ValueError, "line 3"):
+            h()
+
+    def test_many(self):
+        for inp, exp in [(1, 2), (2, 4)]:
+            with self.subTest(inp=inp):      # failures are reported per-case, loop continues
+                self.assertEqual(double(inp), exp)
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{\code{setUp} and \code{tearDown}: a fresh start for every test}
+If a class has a method called \code{setUp}, unittest runs it \textbf{before each test method}. It’s usually used to build the object being tested:
+\Needspace{11\baselineskip}
+\begin{pycode}
+class TestCache(unittest.TestCase):
+    def setUp(self):
+        self.cache = LRUCache(capacity=2)
+
+    def test_put_then_get(self):
+        self.cache.put("a", 1)
+        self.assertEqual(self.cache.get("a"), 1)
+
+    def test_empty(self):
+        self.assertEqual(len(self.cache), 0)
+\end{pycode}
+Because \code{setUp} runs again before \code{test\_empty}, that test gets a brand-new, empty cache. Whatever \code{test\_put\_then\_get} did doesn’t matter. That’s on purpose: each test should stand on its own.
+Practical tip: when a failing test uses \code{self.something}, \textbf{look at \code{setUp}} to see how that object was created. The capacity, the vocabulary size and the initial data set up there are part of the test’s input.
+\code{tearDown} is the opposite: it runs \emph{after} each test, for cleanup. You’ll rarely see it in exam tests.
+\Needspace{10\baselineskip}
+\subsection{The assertions, one by one}
+Each assertion checks one condition. If the condition is false, the test fails and prints a message showing the values involved. Here they are with what they check and a typical use:
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.85}Y{0.92}Y{1.23}@{}}
+\rowcolor{primary}
+\thd{Assertion} & \thd{Passes when} & \thd{Typical use} \\ \hline
+\endhead
+\code{assertEqual(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} & \code{a\ =\allowbreak{}=\allowbreak{}\ b} & the workhorse: “the function returns this” \\
+\code{assertNotEqual(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} & \code{a\ !=\allowbreak{}\ b} & “these two encodings must differ” \\
+\code{assertTrue(\allowbreak{}x)\allowbreak{}} / \code{assertFalse(\allowbreak{}x)\allowbreak{}} & \code{x} is truthy / falsy & \code{assertTrue(\allowbreak{}is\_\allowbreak{}valid(\allowbreak{}s)\allowbreak{})\allowbreak{}} \\
+\code{assertIs(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} & \code{a} and \code{b} are the \emph{same object} & “returns the same list, not a copy” \\
+\code{assertIsNone(\allowbreak{}x)\allowbreak{}} & \code{x\ is\ None} & “\code{get} of a missing key gives \code{None}” \\
+\code{assertIn(\allowbreak{}x,\allowbreak{}\ c)\allowbreak{}} & \code{x\ in\ c} & “the key is present” \\
+\code{assertIsInstance(\allowbreak{}obj,\allowbreak{}\ cls)\allowbreak{}} & \code{obj} is of type \code{cls} & “decode returns a \code{str}, not \code{bytes}” \\
+\code{assertAlmostEqual(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} & \code{round(\allowbreak{}a\ -\ b,\allowbreak{}\ 7)\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ 0} & comparing floats (Day 1) \\
+\code{assertCountEqual(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} & same elements, same counts, \emph{any order} & when the order isn’t specified \\
+\code{assertLess(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} etc. & \code{a\ \textless{}\allowbreak{}\ b} etc. & “the compressed version is shorter” \\
+\hline
+\end{xltabular}
+\end{datatable}
+Two of them deserve a closer look.
+\textbf{\code{assertAlmostEqual}} exists because floats are approximate (Day 1, section 2). It rounds the \emph{difference} to 7 decimal places and checks that it’s zero:
+\Needspace{2\baselineskip}
+\begin{pycode}
+self.assertAlmostEqual(average([0.1, 0.2]), 0.15)              # passes, despite 0.15000000000000002
+self.assertAlmostEqual(price_with_tax(10), 12.1, places=2)    # only check 2 decimal places
+\end{pycode}
+\textbf{\code{assertCountEqual}} has a misleading name. It doesn’t compare counts of something. It checks that both sides contain the same elements, the same number of times, in any order. When you see it in a test, the spec doesn’t fix the order of the result.
+\Needspace{2\baselineskip}
+\begin{pycode}
+self.assertCountEqual(group_members(), ["ana", "ben"])   # ["ben", "ana"] also passes
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Testing that errors are raised}
+On Day 1 you saw \code{with\ self.assertRaises(\allowbreak{}ValueError)\allowbreak{}:\allowbreak{}}. It passes only if the code inside the \code{with} block raises a \code{ValueError} (or a subclass of it, Day 4). There are two more forms.
+With \code{as\ ctx}, you can examine the exception after it’s been raised:
+\Needspace{2\baselineskip}
+\begin{pycode}
+with self.assertRaises(KeyError) as ctx:
+    store.get_strict("missing")
+self.assertEqual(ctx.exception.args[0], "missing")      # the error carried the key
+\end{pycode}
+\code{ctx.exception} is the exception object, and \code{args[0]} is the first value it was created with, usually the message.
+\code{assertRaisesRegex} also checks the error \emph{message}, matching it against a pattern. When a spec says “the error message must mention the line number”, this is how it’s tested:
+\Needspace{2\baselineskip}
+\begin{pycode}
+with self.assertRaisesRegex(ValueError, "line 3"):
+    parse("ok\nok\nbroken")
+\end{pycode}
+So if the code raises the right exception but with a different message, for example \code{\textquotedbl{}line\ 2\textquotedbl{}} because of a 0-based/1-based mix-up, this test fails.
+\Needspace{10\baselineskip}
+\subsection{\code{subTest}: many cases in one test}
+Sometimes a test checks the same function on a whole list of inputs:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def test_many(self):
+    for inp, exp in [(1, 2), (2, 4), (3, 6)]:
+        with self.subTest(inp=inp):
+            self.assertEqual(double(inp), exp)
+\end{pycode}
+Without \code{subTest}, the first failing case would stop the test, and you’d never learn about the others. With it, every case runs, and each failure is reported separately with its parameters:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+FAIL: test_many (test_x.TestDouble.test_many) (inp=3)
+AssertionError: 7 != 6
+\end{txtcode}
+This is valuable information. If cases 1 and 2 pass and only 3 fails, the bug is something specific to that input. The \emph{pattern} of which inputs fail is often the biggest clue you’ll get.
+\Needspace{10\baselineskip}
+\subsection{\code{maxDiff\ =\allowbreak{}\ None}}
+When two long lists or strings differ, unittest normally cuts the difference report short, with a message like “Diff is 1520 characters long. Set self.maxDiff to None to see it.” Adding \code{maxDiff\ =\allowbreak{}\ None} to the test class shows everything. You can add it temporarily to an exam test class while investigating. It changes only how much is printed, not what’s checked.
+\Needspace{10\baselineskip}
+\subsection{Running exactly the tests you want}
+From the folder that contains the test files:
+\Needspace{10\baselineskip}
+\begin{shcode}
+python -m unittest                                  # discover test*.py in cwd
+python -m unittest -v                               # one line per test
+python -m unittest -f                               # stop at first failure
+python -m unittest test_bpe                         # one file (module name, no .py)
+python -m unittest test_bpe.TestEncode              # one class
+python -m unittest test_bpe.TestEncode.test_empty   # one test
+python -m unittest -k encode                        # tests whose name contains "encode"
+python -m unittest -v 2>&1 | grep -E "FAIL|ERROR"   # list of failing tests only
+python -m unittest 2>&1 | tail -3                   # just the summary
+\end{shcode}
+When you’d use each:
+\begin{itemize}
+\item The plain run gives you your \textbf{score}. Do it at the start, and after every fix.
+\item \code{-v} gives you the \textbf{map}: every test by name, marked \code{ok}, \code{FAIL} or \code{ERROR}. Do it once at the start, to see which areas are broken.
+\item The dotted names (\code{file.Class.test}) let you \textbf{focus} on one test while you work on it. The output stays short, and the run is quick.
+\item \code{-k\ encode} runs every test with “encode” in its name, which is handy for working on one feature.
+\item The \code{grep} line prints only the names of failing tests, a compact to-do list.
+\item The \code{tail\ -3} line shows just the last three lines, i.e. the summary.
+\end{itemize}
+About the \code{2\textgreater{}\allowbreak{}\&\allowbreak{}1\ \textbar{}\allowbreak{}\ ...} part: a program can print to two output channels, “standard output” and “standard error”. unittest writes its report to standard error. The \code{\textbar{}\allowbreak{}} symbol sends output into another command (like \code{grep} or \code{tail}), but only standard output. \code{2\textgreater{}\allowbreak{}\&\allowbreak{}1} merges standard error into standard output so the pipe gets everything. You don’t need to understand the details. Just copy the line as it is.
+\Needspace{10\baselineskip}
+\subsection{Reading the summary}
+At the end of each run, unittest prints a summary like:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+Ran 40 tests in 0.031s
+
+FAILED (failures=3, errors=5)
+\end{txtcode}
+Reading the summary: \code{FAILED\ (\allowbreak{}failures=\allowbreak{}3,\allowbreak{}\ errors=\allowbreak{}5)\allowbreak{}} — \textbf{errors} are exceptions raised in your code (crashes: \code{TypeError}, \code{KeyError}, \code{IndexError}...), \textbf{failures} are wrong answers. Errors are often the cheapest to fix (the traceback points at the line).
+\Needspace{10\baselineskip}
+\subsection{Reading a traceback}
+When a test has an ERROR, unittest prints a \textbf{traceback}: the chain of function calls that led to the crash, oldest first. Here’s an example:
+\Needspace{10\baselineskip}
+\begin{txtcode}
+ERROR: test_encode_word (test_bpe.TestEncode.test_encode_word)
+Traceback (most recent call last):
+  File "test_bpe.py", line 88, in test_encode_word
+    ids = self.tok.encode("hello")
+  File "bpe.py", line 120, in encode
+    return self.encode_ordinary(text)
+  File "bpe.py", line 101, in encode_ordinary
+    ids = merge(ids, pair, self.merges[pair])
+KeyError: (104, 101)
+\end{txtcode}
+Read it as a story: the test called \code{encode}, which called \code{encode\_ordinary}, which crashed on line 101 with a \code{KeyError} because the pair \code{(\allowbreak{}104,\allowbreak{}\ 101)\allowbreak{}} wasn’t in \code{self.merges}.
+\begin{keybox}[Read the last frame in your file]
+\textbf{The last line of the traceback inside YOUR file is where to look}, not the test line.
+\end{keybox}
+Here that’s \code{bpe.py}, line 101. That’s where the problem \emph{showed up}. It isn’t always where the bug \emph{is}: perhaps an earlier line chose a pair that shouldn’t have been chosen. But it’s the right place to start reading, and you work backwards from there.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{Print debugging, done well}
+\Needspace{10\baselineskip}
+\subsection{The idea}
+The simplest way to see inside a running program is to make it print its variables. It works everywhere, needs no tools, and is enough for a large share of bugs. Done \emph{well}, it means printing the right values, clearly labelled, in a form that shows exactly what they are.
+\Needspace{2\baselineskip}
+\begin{pycode}
+print(f"{i=} {cp=:#x} {data[i:i+4]!r}")      # self-documenting f-strings
+print(f"{cp:021b}")                           # binary view for bit-twiddling code
+print("DEBUG", repr(s))                       # repr shows '\n', spaces, quotes, b'' prefixes
+import sys; print(..., file=sys.stderr)       # stderr won't get mixed with expected stdout
+\end{pycode}
+What each line gives you:
+\begin{itemize}
+\item \code{f\textquotedbl{}\{i=\allowbreak{}\}\textquotedbl{}} prints \code{i=\allowbreak{}3}, so you never have to wonder which number is which. You can combine \code{=\allowbreak{}} with a format, as in \code{\{cp=\allowbreak{}:\allowbreak{}\#x\}}, which prints \code{cp=\allowbreak{}0xe9}.
+\item \code{f\textquotedbl{}\{cp:\allowbreak{}021b\}\textquotedbl{}} shows a number as 21 binary digits. For bit-manipulation code (Day 5), wrong bits are visible at a glance.
+\item \code{repr(\allowbreak{}s)\allowbreak{}} shows values \emph{precisely}: strings in quotes, invisible characters like \code{\textbackslash{}n} written out, and bytes with their \code{b} prefix. Many “these look identical but the test says they differ” mysteries are solved by \code{repr}. One side turns out to be \code{'a\ '} (with a trailing space), or \code{'1'} (a string) instead of \code{1} (a number), or \code{b'x'} instead of \code{'x'}.
+\item \code{file=\allowbreak{}sys.stderr} sends the output to the error channel, which matters only if the code being tested prints things itself and a test checks that output.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Where to put the prints}
+\begin{itemize}
+\item unittest \textbf{shows} prints from tests (in the output stream), so prints work fine; just remove/disable them afterwards because they clutter output. A \code{DEBUG\ =\allowbreak{}\ True} flag + \code{if\ DEBUG:\allowbreak{}\ print(\allowbreak{}...)\allowbreak{}} is handy.
+\item Put the print \textbf{just before} the line that crashes or the return that gives a wrong value.
+\end{itemize}
+Choosing \emph{where} to print is the real skill. Print at the inputs of the function you suspect, and inside its main loop, showing the state on each pass. Then compare each printed line with what you worked out by hand. The first line that disagrees tells you that the bug is in the code that ran just before it.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{pdb: pausing the program to look around}
+\Needspace{10\baselineskip}
+\subsection{What a debugger is}
+Printing has a limitation: you have to decide in advance what to print. If what you printed doesn’t explain the bug, you add more prints and run again. A \textbf{debugger} works differently. It \emph{pauses} the program at a line of your choice, and while it’s paused you can look at any variable, evaluate any expression, and then run the program forward one line at a time, watching what changes. Python’s built-in debugger is called \textbf{pdb}, and the exam instructions point to it explicitly.
+\Needspace{10\baselineskip}
+\subsection{Setting a breakpoint}
+You pause the program by adding this line where you want to stop:
+\Needspace{2\baselineskip}
+\begin{pycode}
+breakpoint()           # Python 3.7+, same as: import pdb; pdb.set_trace()
+\end{pycode}
+When execution reaches this line, the program stops and shows the line it’s about to run, followed by a \code{(\allowbreak{}Pdb)\allowbreak{}} prompt. All the local variables at that point are available to you.
+Inside a loop, an unconditional breakpoint would stop on \emph{every} pass, which is tedious if the loop runs a thousand times. Put it inside an \code{if} so it only triggers in the case you care about:
+Conditional (only for the interesting case — essential inside loops):
+\Needspace{2\baselineskip}
+\begin{pycode}
+if i == 7 or cp > 0x10FFFF:
+    breakpoint()
+\end{pycode}
+Run a test file and the debugger stops at \code{breakpoint(\allowbreak{})\allowbreak{}}:
+\Needspace{2\baselineskip}
+\begin{shcode}
+python -m unittest test_ex02_intervals.TestMerge.test_touching   # run ONLY the test you care about
+\end{shcode}
+Run just that one test. Otherwise every other test that passes through the same line stops there too.
+\Needspace{10\baselineskip}
+\subsection{A complete example session}
+Here’s a small buggy function, followed by a real pdb session investigating it. The spec says \code{count\_vowels(\allowbreak{}\textquotedbl{}banana\textquotedbl{})\allowbreak{}} should return 3.
+\Needspace{8\baselineskip}
+\begin{pycode}
+def count_vowels(word):
+    count = 0
+    for ch in word:
+        breakpoint()
+        if ch in "aeiou":
+            count =+ 1
+    return count
+\end{pycode}
+\Needspace{17\baselineskip}
+\begin{txtcode}
+> example.py(5)count_vowels()
+-> if ch in "aeiou":
+(Pdb) p ch, count
+('b', 0)
+(Pdb) c
+> example.py(5)count_vowels()
+-> if ch in "aeiou":
+(Pdb) p ch, count
+('a', 0)
+(Pdb) n
+> example.py(6)count_vowels()
+-> count =+ 1
+(Pdb) n
+> example.py(3)count_vowels()
+-> for ch in word:
+(Pdb) p count
+1
+(Pdb) c
+> example.py(5)count_vowels()
+-> if ch in "aeiou":
+(Pdb) c
+> example.py(5)count_vowels()
+-> if ch in "aeiou":
+(Pdb) p ch, count
+('a', 1)
+(Pdb) n
+(Pdb) n
+(Pdb) p count
+1
+\end{txtcode}
+What we did:
+\begin{enumerate}
+\item The program stopped at the \code{breakpoint(\allowbreak{})\allowbreak{}}. The line starting with \code{-\textgreater{}\allowbreak{}} is the \emph{next} line to run.
+\item \code{p\ ch,\allowbreak{}\ count} printed the variables: first letter \code{'b'}, count 0. Correct so far.
+\item \code{c} (continue) ran on until the breakpoint was hit again, now for \code{'a'}.
+\item \code{n} (next) ran one line at a time. After the \code{count\ =\allowbreak{}+\ 1} line, \code{count} was 1. That’s fine for the first vowel.
+\item On the \emph{second} \code{'a'}, count was still 1 after the same line. That’s the divergence: it should have become 2.
+\end{enumerate}
+Looking closely at the line: \code{count\ =\allowbreak{}+\ 1} is \code{count\ =\allowbreak{}\ +1}, which sets count to plus one every time. The intended line was \code{count\ +=\allowbreak{}\ 1}. (Remember to delete the \code{breakpoint(\allowbreak{})\allowbreak{}} afterwards.)
+\Needspace{10\baselineskip}
+\subsection{The commands}
+Commands at the \code{(\allowbreak{}Pdb)\allowbreak{}} prompt:
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.53}Y{1.47}@{}}
+\rowcolor{primary}
+\thd{Cmd} & \thd{Meaning} \\ \hline
+\endhead
+\code{l} / \code{ll} & list code around current line / the whole current function \\
+\code{n} & next line (step \textbf{over} calls) \\
+\code{s} & step \textbf{into} a call \\
+\code{r} & continue until the current function returns \\
+\code{c} & continue until the next breakpoint \\
+\code{unt\ N} & continue until line N (great to skip a loop) \\
+\code{p\ expr} / \code{pp\ expr} & print / pretty-print an expression \\
+\emph{any expression} & e.g. \code{len(\allowbreak{}ids)\allowbreak{}}, \code{ids[\allowbreak{}i:\allowbreak{}i+3]\allowbreak{}}, \code{sorted(\allowbreak{}stats.\allowbreak{}items(\allowbreak{})\allowbreak{})\allowbreak{}[\allowbreak{}:\allowbreak{}5]\allowbreak{}} \\
+\code{w} & where: the stack trace \\
+\code{u} / \code{d} & move up / down the stack (inspect the caller’s variables, e.g. the test’s inputs) \\
+\code{b\ 42} / \code{b\ file.\allowbreak{}py:\allowbreak{}42} / \code{b\ 42,\allowbreak{}\ i\ =\allowbreak{}=\allowbreak{}\ 3} & set (conditional) breakpoint \\
+\code{cl} & clear breakpoints \\
+\code{display\ expr} & auto-print expr every time execution stops \\
+\code{interact} & full Python REPL with the current variables (Ctrl-D to return) \\
+\code{q} & quit \\
+\emph{Enter} & repeat last command \\
+\hline
+\end{xltabular}
+\end{datatable}
+Most sessions use only a handful of these, in roughly this order:
+\begin{enumerate}
+\item \textbf{Get your bearings} with \code{ll}, which shows the whole current function with an arrow at the current line.
+\item \textbf{Look} at variables with \code{p}, or just type any expression, like \code{len(\allowbreak{}ids)\allowbreak{}} or \code{ids[i:\allowbreak{}i+3]}, and pdb evaluates it right there.
+\item \textbf{Move forward.} \code{n} runs the current line and stops at the next one. If the current line calls a function you suspect, \code{s} steps \emph{into} that function instead of running it in one go. \code{r} runs until the current function returns, and \code{c} runs until the next breakpoint.
+\item \textbf{Look at the bigger picture.} \code{w} shows the chain of calls that led here, like a traceback. \code{u} moves up one level, to the function that called this one, so you can see \emph{its} variables, for example the exact input the test passed in. \code{d} moves back down.
+\item \code{q} quits when you’ve found what you need.
+\end{enumerate}
+Three practical tips:
+\begin{itemize}
+\item \code{display\ count} makes pdb print \code{count} automatically every time it stops, which is ideal for watching a value change as you press \code{n}.
+\item Pressing Enter on an empty line repeats the last command, so you can press \code{n} once and then just keep hitting Enter.
+\item If one of your variables is called \code{n}, \code{c}, \code{s}, \code{l} or \code{p}, typing its name runs the \emph{command} instead. Use \code{p\ n} to print it.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Post-mortem: examining a crash after it happens}
+\textbf{Post-mortem} (inspect the state at the moment of a crash):
+\Needspace{2\baselineskip}
+\begin{shcode}
+python -m pdb -c continue my_script.py      # runs; on an uncaught exception you land at the crash
+\end{shcode}
+\Needspace{7\baselineskip}
+\begin{pycode}
+import pdb, traceback
+try:
+    f()
+except Exception:
+    pdb.post_mortem()                        # inside a scratch script
+\end{pycode}
+“Post-mortem” means “after death”. Instead of setting a breakpoint beforehand, you let the program crash, and pdb opens at the exact line of the crash, with every variable still holding the value it had at that moment. For an \code{IndexError}, typing \code{p\ i,\allowbreak{}\ len(\allowbreak{}data)\allowbreak{}} usually explains the problem instantly. The first form does this for a whole script. The second does it for one function call inside a script you wrote.
+\begin{notebox}[Post-mortem inside unittest]
+Note: unittest catches exceptions, so post-mortem doesn’t trigger from \code{python\ -m\ unittest}. Write a tiny scratch script that calls the function with the failing test’s inputs instead (see section 5).
+\end{notebox}
+\code{pdb++} (\code{pip\ install\ pdbpp}) is a drop-in upgrade (colours, \code{sticky} mode). Nice at home; don’t depend on it.
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{The exam workflow (practise this exactly)}
+This is the routine to make automatic. First the steps, then why each one is there.
+\begin{enumerate}
+\item \textbf{Read (≈10 min).} Skim the whole spec once. Skim the implementation: what are the functions/classes, what calls what? Skim the test file names/classes. Don’t fix anything yet.
+\item \textbf{Run everything.} \code{python\ -m\ unittest\ 2\textgreater{}\allowbreak{}\&\allowbreak{}1\ \textbar{}\allowbreak{}\ tail\ -3}. Note the score.
+\item \textbf{Triage.} \code{python\ -m\ unittest\ -v\ 2\textgreater{}\allowbreak{}\&\allowbreak{}1\ \textbar{}\allowbreak{}\ grep\ -E\ \textquotedbl{}ERROR\textbar{}\allowbreak{}FAIL\textquotedbl{}}. Group failures by the function under test. Start at the \textbf{bottom of the call graph}: helpers that everything else uses (e.g. \code{get\_stats}, \code{merge}, \code{parse\_amount}). One fix there can turn 15 tests green.
+\item \textbf{Loop, one bug at a time:}
+\begin{itemize}
+\item pick ONE failing test, ideally the simplest (smallest input),
+\item reproduce it in isolation (\code{python\ -m\ unittest\ file.Class.test}),
+\item compute the expected result \emph{by hand} from the spec for that small input,
+\item find the first point where the program’s state diverges from your hand computation (print / pdb),
+\item fix the minimal thing, \textbf{re-run the whole suite} (did the score go up? did anything else break?).
+\end{itemize}
+\item \textbf{Don’t get stuck.} If a test resists \textgreater{} 10–15 min, write it down and move on. Come back later — other fixes often make it clear.
+\item \textbf{Spec vs. tests.} When they disagree, the tests win. Look at the test to learn the exact expected format (spaces, ordering, exception type, rounding).
+\item \textbf{Last 10 min:} remove debug prints / breakpoints, run the full suite one final time.
+\end{enumerate}
+\textbf{Why read first?} Ten minutes of reading gives you a map: which function does what, and which ones depend on which. Without it, you’ll “fix” a symptom in a high-level function when the real bug is in a helper, or change code that was actually correct.
+\textbf{Why note the starting score?} So you can tell whether each change helped or hurt.
+\textbf{What’s a “call graph”, and why start at the bottom?} A call graph is simply “which function calls which”. Suppose \code{encode} calls \code{merge}, and \code{merge} is broken. Then every test of \code{encode} fails too, even though \code{encode} itself may be fine. If you fix \code{merge} first, many failures disappear at once, and you avoid wasting time investigating failures that are only side effects. So start with the functions that don’t call anything else (the bottom of the graph), and work upward.
+\textbf{Why the simplest failing test?} Because you need to work out the correct answer by hand, and that’s only practical for small inputs. Your hand computation is the yardstick. You run the program, compare its state against your own working at each step, and the bug lies between the last point where they agreed and the first point where they don’t.
+\textbf{Why re-run everything after each fix?} Two reasons. Your fix might be wrong, or right but break something else. And several bugs can hide each other: fixing one sometimes doesn’t raise the score because another bug still breaks the same tests. Re-running everything shows you what really changed.
+\textbf{Why move on when stuck?} Your score is the number of passing tests, not the effort spent. Fifteen minutes on one stubborn test could fix three easier ones elsewhere. And often a later fix makes the stubborn one obvious.
+\textbf{Why do the tests win over the spec?} Because the tests are what’s graded. If the spec is vague about a format, the test that checks it shows you exactly what’s wanted.
+\textbf{Why clean up at the end?} A leftover \code{breakpoint(\allowbreak{})\allowbreak{}} makes the grader’s test run sit waiting for input forever. A leftover print can break tests that check printed output.
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Scratch scripts and differential testing}
+\Needspace{10\baselineskip}
+\subsection{Scratch scripts}
+A \textbf{scratch script} is a throwaway file where you call the function you’re investigating directly, with whatever inputs you like, and print the results:
+\Needspace{2\baselineskip}
+\begin{pycode}
+from ledger import parse_amount
+for s in ["150.25", "150.5", "-3.10", "0.05"]:
+    print(s, parse_amount(s))
+\end{pycode}
+Iterating on a 4-line scratch script is faster than re-running the suite.
+Save it as \code{scratch.py} next to the code and run it with \code{python\ scratch.py}. It lets you try many inputs in one go, including edge cases the tests may not have, and it’s where post-mortem pdb works (which unittest prevents). It isn’t graded, so it doesn’t matter whether you delete it.
+\Needspace{10\baselineskip}
+\subsection{Differential testing: compare with a simple version}
+\begin{tipbox}[Differential testing]
+If you can write a slow-but-obviously-correct version of a helper (or use a built-in like \code{bytes.decode}, \code{sorted}, \code{str.split}) compare outputs on many inputs:
+\end{tipbox}
+\Needspace{2\baselineskip}
+\begin{pycode}
+import random
+for _ in range(1000):
+    xs = [random.randint(0, 9) for _ in range(random.randint(0, 6))]
+    assert my_func(xs) == obviously_correct(xs), xs
+\end{pycode}
+\begin{keybox}[Minimal failing input]
+The first assertion that fires gives you a minimal failing input.
+\end{keybox}
+Here’s the idea. Exam code is usually written to be \emph{fast}, with clever index tricks and incremental updates. But for many functions, a slow version is easy to write: two nested loops, or a call to a built-in. For example, “the largest sum of \code{k} consecutive numbers” can be computed slowly as \code{max(\allowbreak{}sum(\allowbreak{}xs[i:\allowbreak{}i+k])\allowbreak{}\ for\ i\ in\ range(\allowbreak{}len(\allowbreak{}xs)\allowbreak{}\ -\ k\ +\ 1)\allowbreak{})\allowbreak{}}.
+So you generate hundreds of small random inputs and compare the clever version with the simple one. The \code{,\allowbreak{}\ xs} at the end of the \code{assert} line makes Python print the input that failed. Because the random inputs are tiny (at most 6 numbers from 0 to 9), the failing input is small enough to trace by hand. Several tests in this course are written exactly this way. You’ll see names like \code{test\_random\_against\_brute\_force}.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{What a failure tells you}
+Each kind of failure points to a short list of likely causes. With this table, “something’s wrong” becomes “check these three things first”:
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.57}Y{1.43}@{}}
+\rowcolor{primary}
+\thd{Symptom} & \thd{Likely cause} \\ \hline
+\endhead
+\code{None\ !=\allowbreak{}\ [\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{}]\allowbreak{}} & missing \code{return}, or a method that mutates and returns None (\code{sort}, \code{append}) \\
+\code{IndexError} & off-by-one in a loop bound, \code{while\ i\ \textless{}\allowbreak{}\ len(\allowbreak{}x)\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}, look-ahead \code{x[\allowbreak{}i+1]\allowbreak{}} at the end \\
+\code{KeyError} & wrong key (str vs int, tuple order), key not inserted, deleted too early \\
+\code{UnboundLocalError} & assignment to a name that should be \code{self.\allowbreak{}x} or that is only set in one branch \\
+\code{RecursionError} & property setter assigning to itself; missing base case \\
+test hangs & \code{while} loop that doesn’t advance its index \\
+result off by exactly 1 & \code{range} bounds, \code{\textless{}\allowbreak{}} vs \code{\textless{}\allowbreak{}=\allowbreak{}}, 0- vs 1-based numbering \\
+result is a permutation of expected & missing sort or wrong sort key / tie-break \\
+works on ASCII, fails on ‘é’ & bytes vs chars confusion (\code{len(\allowbreak{}s)\allowbreak{}} vs \code{len(\allowbreak{}s.\allowbreak{}encode(\allowbreak{})\allowbreak{})\allowbreak{}}) \\
+test passes alone, fails in suite & shared state: class attribute, module-level global, mutable default \\
+\hline
+\end{xltabular}
+\end{datatable}
+A few rows need explaining:
+\begin{itemize}
+\item \textbf{“result is a permutation of expected”} means you got the right items in the wrong order, like \code{[2,\allowbreak{}\ 1,\allowbreak{}\ 3]} instead of \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3]}. The logic is fine. The sorting or tie-breaking isn’t.
+\item \textbf{“test passes alone, fails in suite”}: each test is supposed to start fresh (that’s what \code{setUp} is for). If a test passes when run on its own but fails when run with the others, an earlier test left something behind, and that something must live \emph{outside} the test’s own objects: a class attribute, a module-level variable, or a mutable default argument (Day 4, section 2).
+\item \textbf{“test hangs”}: press Ctrl-C. The traceback shows the line the program was stuck on, usually inside a \code{while} loop. Then check that every path through that loop moves its index forward.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{The toolbox: Python you’ll meet in today’s exercises}
+Today’s exercises are about \emph{finding} bugs, so you’ll be reading code more than writing it. Here are the techniques that code uses, so that while debugging you can focus on what’s wrong rather than on what a line means.
+\Needspace{10\baselineskip}
+\subsection{\code{if\ \_\_name\_\_\ =\allowbreak{}=\allowbreak{}\ \textquotedbl{}\_\_main\_\_\textquotedbl{}:\allowbreak{}}}
+You’ll see this at the bottom of ex01 (and of many Python files):
+\Needspace{2\baselineskip}
+\begin{pycode}
+if __name__ == "__main__":
+    print(moving_average([1, 2, 3, 4, 5], 2))
+\end{pycode}
+Python sets the variable \code{\_\_name\_\_} to \code{\textquotedbl{}\_\_main\_\_\textquotedbl{}} only in the file you \textbf{run directly} (\code{python\ ex01\_pdb\_drill.py}). When the same file is \textbf{imported}, for example by a test, \code{\_\_name\_\_} is the module’s name instead, so the block is skipped. It’s the standard place for “try it out” code that shouldn’t run during the tests. It’s also a handy place to put a breakpoint and step through a function by hand.
+\Needspace{10\baselineskip}
+\subsection{A sliding window sum}
+\code{moving\_average} computes the average of every \code{k} consecutive numbers. Adding up \code{k} numbers again for every window would be wasteful. Instead, the code keeps a running \code{window} sum and, when the window moves one step right, \textbf{adds the number that enters and subtracts the one that leaves}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+nums = [1, 2, 3, 4, 5], k = 2
+window = 1 + 2 = 3                        covers positions 0..1
+i = 2: add nums[2], remove nums[0] -> 4   covers positions 1..2
+i = 3: add nums[3], remove nums[1] -> 7   covers positions 2..3
+\end{txtcode}
+When the new window ends at position \code{i}, the number that just left is at position \code{i\ -\ k}. Getting that index one off is exactly the bug you’ll chase with pdb. (Drill 1 is entirely about this technique.)
+\Needspace{10\baselineskip}
+\subsection{Sorting lists of pairs}
+\code{sorted} on a list of lists or tuples compares them \textbf{element by element}: by the first element, and only when those are equal, by the second (Day 1, section 6):
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> sorted([[5, 6], [1, 3], [1, 2]])
+[[1, 2], [1, 3], [5, 6]]
+\end{txtcode}
+So \code{sorted(\allowbreak{}intervals)\allowbreak{}} sorts intervals by their start, which is exactly what merging needs.
+\Needspace{10\baselineskip}
+\subsection{Changing the last item of the result: \code{result[-1][1]}}
+When merging intervals, \code{result} is a list of \code{[start,\allowbreak{}\ end]} lists. \code{result[-1]} is the last merged interval, and \code{result[-1][1]} is its end. Read the double index from left to right: first pick the interval, then pick its end. Because each interval is a list, you can change its end in place: \code{result[-1][1]\ =\allowbreak{}\ new\_end}.
+The merge step then is: “if the next interval starts before (or exactly where) the last one ends, stretch the last one; otherwise start a new one”. Stretch to \code{max(\allowbreak{}old\_end,\allowbreak{}\ new\_end)\allowbreak{}}, not simply \code{new\_end}: an interval entirely inside the previous one, like \code{[2,\allowbreak{}\ 3]} after \code{[1,\allowbreak{}\ 10]}, must not shrink it.
+\code{result\ and\ ...} at the start of the condition guards against the empty list: \code{result[-1]} on an empty list would raise \code{IndexError}, but \code{and} stops at the first false value, so the index is never evaluated when \code{result} is empty.
+\Needspace{10\baselineskip}
+\subsection{Money as whole cents}
+Floats can’t store most decimal fractions exactly (Day 1, section 2): \code{0.1\ +\ 0.2} isn’t exactly \code{0.3}. Code that handles money therefore stores \textbf{integer cents}: 150.25 is stored as \code{15025}. Text is converted to cents when it’s read, and back to text when it’s printed.
+\textbf{Parsing} \code{\textquotedbl{}150.5\textquotedbl{}}: split at the dot with \code{partition} (Day 2), giving \code{\textquotedbl{}150\textquotedbl{}} and \code{\textquotedbl{}5\textquotedbl{}}. The fraction must count as \textbf{50} cents, not 5, so pad it on the right to two digits with \code{ljust(\allowbreak{}2,\allowbreak{}\ \textquotedbl{}0\textquotedbl{})\allowbreak{}} (Day 2) before converting. Then \code{cents\ =\allowbreak{}\ int(\allowbreak{}whole)\allowbreak{}\ *\ 100\ +\ int(\allowbreak{}frac)\allowbreak{}}. A leading \code{-} is removed first and applied to the whole result at the end, \code{-cents\ if\ negative\ else\ cents}. Otherwise \code{\textquotedbl{}-0.05\textquotedbl{}} would come out as +5 cents, because the whole part \code{-0} is 0.
+\textbf{Formatting} \code{-310}: split off the sign, then \code{divmod(\allowbreak{}abs(\allowbreak{}cents)\allowbreak{},\allowbreak{}\ 100)\allowbreak{}} gives \code{(\allowbreak{}3,\allowbreak{}\ 10)\allowbreak{}} (Day 1, section 8). Use the absolute value, because \code{divmod} on a negative number rounds towards minus infinity and gives surprising results: \code{divmod(\allowbreak{}-310,\allowbreak{}\ 100)\allowbreak{}} is \code{(\allowbreak{}-4,\allowbreak{}\ 90)\allowbreak{}}. Finally, \code{f\textquotedbl{}\{sign\}\{whole\}.\{frac:\allowbreak{}02d\}\textquotedbl{}} writes the cents with \textbf{two} digits (\code{:\allowbreak{}02d} means “integer, at least 2 digits, padded with zeros”, Day 2 section 4), so 5 cents prints as \code{0.05} and not \code{0.5}.
+\Needspace{10\baselineskip}
+\subsection{Parsing a line: comments, fields, and case}
+\Needspace{2\baselineskip}
+\begin{pycode}
+line = raw.split("#", 1)[0]     # everything before the first '#'
+parts = line.split()            # fields separated by any whitespace
+\end{pycode}
+\code{raw.split(\allowbreak{}\textquotedbl{}\#\textquotedbl{},\allowbreak{}\ 1)\allowbreak{}} cuts at the first \code{\#} into at most two pieces, and \code{[0]} takes the first piece. It works when there’s no \code{\#} too, because then the list has a single piece, the whole line. If \code{parts} is empty, the line was blank or only a comment.
+\code{action\ in\ (\allowbreak{}\textquotedbl{}BUY\textquotedbl{},\allowbreak{}\ \textquotedbl{}SELL\textquotedbl{})\allowbreak{}} checks one value against several allowed ones. The spec says actions are case-insensitive, so the code compares \code{parts[1].upper(\allowbreak{})\allowbreak{}}: whatever the user typed, \code{\textquotedbl{}buy\textquotedbl{}} or \code{\textquotedbl{}Buy\textquotedbl{}}, it becomes \code{\textquotedbl{}BUY\textquotedbl{}}.
+\Needspace{10\baselineskip}
+\subsection{A small list as a record}
+The portfolio stores each position as a two-item list \code{[qty,\allowbreak{}\ total\_cost]}, so that it can be updated in place:
+\Needspace{2\baselineskip}
+\begin{pycode}
+pos = self.positions.setdefault(symbol, [0, 0])   # Day 3, section 9
+pos[0] += qty
+pos[1] += cost
+\end{pycode}
+And it’s read back by unpacking: \code{held,\allowbreak{}\ total\_cost\ =\allowbreak{}\ self.positions[symbol]}. Unpacking works on any sequence of the right length, lists included, not just tuples.
+\Needspace{10\baselineskip}
+\subsection{Catching an error to add information, then raising again}
+The spec says every error message must start with the line number. The individual checks don’t know the line number, but the loop does. So the loop catches the error, and raises a new one with the line number in front:
+\Needspace{7\baselineskip}
+\begin{pycode}
+for n, raw in enumerate(lines, start=1):
+    try:
+        ...                                   # anything in here may raise ValueError
+    except ValueError as e:
+        raise ValueError(f"line {n}: {e}")
+\end{pycode}
+\code{except\ ValueError\ as\ e} catches it and names the exception object \code{e}. Putting \code{e} in an f-string gives its message, so \code{\textquotedbl{}not\ enough\ shares\textquotedbl{}} becomes \code{\textquotedbl{}line\ 4:\allowbreak{}\ not\ enough\ shares\textquotedbl{}}. \code{enumerate(\allowbreak{}...,\allowbreak{}\ start=\allowbreak{}1)\allowbreak{}} (Day 1) makes the line numbers start at 1, as humans count them.
+\Needspace{10\baselineskip}
+\subsection{Joining the report}
+A multi-line report is built as a list of lines and joined at the end with \code{\textquotedbl{}\textbackslash{}n\textquotedbl{}.join(\allowbreak{}lines)\allowbreak{}}, which puts a newline \emph{between} lines and none after the last one (Day 2, section 5).
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 6} after every change; time \code{ex03} at 45 minutes.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}pdb\_\allowbreak{}drill.\allowbreak{}py} & \textbf{guided debug} & follow the walkthrough below using pdb \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}intervals.\allowbreak{}py} & \textbf{debug} & interval utilities, 5 bugs \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}ledger.\allowbreak{}py} & \textbf{debug, exam-style} & 120-line portfolio ledger with a spec and 9 bugs. \textbf{Time it: 45 min.} \\
+\hline
+\end{xltabular}
+\end{datatable}
+\textbf{Background for ex02.} An \textbf{interval} is a stretch of numbers from a start to an end, written \code{[start,\allowbreak{}\ end]}: for example, a meeting from hour 9 to hour 11 is \code{[9,\allowbreak{}\ 11]}. A typical task is \textbf{merging} overlapping intervals: if one meeting is \code{[1,\allowbreak{}\ 3]} and another \code{[2,\allowbreak{}\ 5]}, together they cover \code{[1,\allowbreak{}\ 5]}. The classic method is to sort the intervals by their start, then walk through them, and either extend the last merged interval (if the next one overlaps it) or start a new one. The bugs hide in the details the spec pins down. Do intervals that only \emph{touch}, like \code{[1,\allowbreak{}\ 3]} and \code{[3,\allowbreak{}\ 5]}, count as overlapping? (In this exercise they do.) Is the input sorted first? Is the input list left unmodified?
+\textbf{Background for ex03.} A small investment \textbf{ledger}: it records buying and selling shares, and tracks your cash and how many shares of each company you hold. Its spec is at the top of the file. It’s your first full exam rehearsal: apply the section 4 workflow step by step, and time yourself.
+\Needspace{10\baselineskip}
+\subsection{pdb walkthrough for ex01}
+The point of this walkthrough is to practise the \emph{mechanics} of pdb on a small, contained bug, so you’ll use it without hesitation in the exam.
+The first function computes a \textbf{moving average}: the average of every group of \code{k} neighbouring numbers. For \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3,\allowbreak{}\ 4,\allowbreak{}\ 5]} with \code{k\ =\allowbreak{}\ 2}, the groups are \code{[1,\allowbreak{}\ 2]}, \code{[2,\allowbreak{}\ 3]}, \code{[3,\allowbreak{}\ 4]}, \code{[4,\allowbreak{}\ 5]}, with averages 1.5, 2.5, 3.5, 4.5. Instead of re-adding each group from scratch, the function keeps a running total called \code{window}. At each step it adds the number that enters the group and subtracts the one that leaves. (This is the “sliding window” technique, covered in depth in drill 1.)
+\begin{enumerate}
+\item \code{python\ run.py\ 6\ -k\ ex01} → \code{test\_moving\_average} fails with wrong numbers.
+\item Open \code{exercises/\allowbreak{}ex01\_pdb\_drill.py}, add \code{breakpoint(\allowbreak{})\allowbreak{}} as the first line inside the \code{for} loop.
+\item \code{cd\ day06\_debugging\_unittest/\allowbreak{}exercises\ \&\allowbreak{}\&\allowbreak{}\ python\ -c\ \textquotedbl{}from\ ex01\_pdb\_drill\ import\ *;\allowbreak{}\ print(\allowbreak{}moving\_average(\allowbreak{}[1,\allowbreak{}\ 2,\allowbreak{}\ 3,\allowbreak{}\ 4,\allowbreak{}\ 5],\allowbreak{}\ 2)\allowbreak{})\allowbreak{}\textquotedbl{}}
+\item At \code{(\allowbreak{}Pdb)\allowbreak{}}: \code{ll} (see the function), \code{p\ i,\allowbreak{}\ k,\allowbreak{}\ window}, \code{p\ nums[i],\allowbreak{}\ nums[i\ -\ k\ +\ 1]}. Ask: which element \emph{leaves} the window when \code{nums[i]} enters? Compute it by hand for \code{i\ =\allowbreak{}\ 2,\allowbreak{}\ k\ =\allowbreak{}\ 2}.
+\item \code{n} to execute the update line, \code{p\ window}. Compare with \code{sum(\allowbreak{}nums[i-k+1:\allowbreak{}i+1])\allowbreak{}} — type it at the prompt.
+\item \code{q}, fix the line, remove \code{breakpoint(\allowbreak{})\allowbreak{}}, re-run the test.
+\item Second bug, post-mortem style: run \code{python\ -m\ pdb\ -c\ continue\ ex01\_pdb\_drill.py} (the file has a \code{\_\_main\_\_} block that crashes). When it stops: \code{w}, \code{p\ line}, \code{p\ repr(\allowbreak{}line)\allowbreak{}}, \code{u} to see the caller. Fix it.
+\end{enumerate}
+What each step teaches:
+\begin{itemize}
+\item \textbf{Step 3} calls the function directly with a tiny input, instead of going through the test, so you control exactly what goes in. (\code{python\ -c\ \textquotedbl{}...\textquotedbl{}} runs a one-line Python program given in quotes.)
+\item \textbf{Step 4} compares the program’s idea of “the number that leaves the group” with yours.
+\item \textbf{Step 5} is the key move. You run one line, then compare the program’s running total (\code{window}) with a total computed the slow, obviously-correct way (\code{sum(\allowbreak{}...)\allowbreak{}}), typed right at the pdb prompt. When they disagree, the line you just ran is the bug.
+\item \textbf{Step 7} practises post-mortem: the crash freezes the program, and \code{repr(\allowbreak{}line)\allowbreak{}} shows exactly what text the parser choked on, including any invisible characters.
+\end{itemize}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 6
+\end{shcode}
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can run a single test by its dotted name.
+\item I can set a conditional breakpoint and use \code{n}, \code{s}, \code{p}, \code{u}, \code{c}, \code{q}.
+\item I followed the 7-step workflow on ex03 and noted how long each bug took.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Run all tests, triage by helper, and fix the lowest-level bug first.
+\item Re-run the full suite after every fix; a score drop is information, not failure.
+\item Time-box: 10--15 minutes without progress, write it down and move on.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

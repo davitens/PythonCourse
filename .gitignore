@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+# your personal retry copies of the exam files
+*.original.py
+# LaTeX build leftovers
+latex/*.aux
+latex/*.log
+latex/*.out
+latex/*.toc
+latex/*.fls
+latex/*.fdb_latexmk
+latex/*.xdv
+latex/_minted*/

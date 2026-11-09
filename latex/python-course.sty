@@ -1,0 +1,495 @@
+% ======================================================================
+%  python-course.sty
+%  Shared visual system for the 10-Day Python Debugging Course booklets.
+%  Compile with XeLaTeX + shell escape (for minted/Pygments).
+% ======================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{python-course}[2026/11/04 Python debugging course style]
+
+% ---------- Typography -------------------------------------------------
+\RequirePackage{fontspec}
+\RequirePackage{unicode-math}
+
+\setmainfont{SourceSerifPro}[
+  Path=/usr/share/texmf-dist/fonts/opentype/adobe/sourceserifpro/,
+  UprightFont=*-Regular.otf,
+  ItalicFont=*-RegularIt.otf,
+  BoldFont=*-Bold.otf,
+  BoldItalicFont=*-BoldIt.otf,
+  Ligatures=TeX
+]
+\setsansfont{Inter}[
+  Path=/usr/share/texmf-dist/fonts/opentype/public/inter/,
+  UprightFont=*-Regular.otf,
+  ItalicFont=*-Italic.otf,
+  BoldFont=*-SemiBold.otf,
+  BoldItalicFont=*-SemiBoldItalic.otf,
+  RawFeature={-case,-calt}
+]
+\setmonofont{SourceCodePro}[
+  Path=/usr/share/texmf-dist/fonts/opentype/adobe/sourcecodepro/,
+  UprightFont=*-Regular.otf,
+  ItalicFont=*-RegularIt.otf,
+  BoldFont=*-Semibold.otf,
+  BoldItalicFont=*-SemiboldIt.otf,
+  Scale=0.95,
+  Ligatures={NoCommon,NoRequired,NoContextual}
+]
+\setmathfont{LibertinusMath-Regular.otf}[
+  Path=/usr/share/texmf-dist/fonts/opentype/public/libertinus-fonts/
+]
+
+\RequirePackage{newunicodechar}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{≥}{\ensuremath{\geq}}
+\newunicodechar{≤}{\ensuremath{\leq}}
+\newunicodechar{⊂}{\ensuremath{\subset}}
+\newunicodechar{≈}{\ensuremath{\approx}}
+\newunicodechar{∞}{\ensuremath{\infty}}
+\newunicodechar{−}{\ensuremath{-}}
+\newunicodechar{↔}{\ensuremath{\leftrightarrow}}
+\newunicodechar{✔}{\textcolor{teal}{\faCheck}}
+
+% Emoji are rendered as course icons; colour emoji fonts are not embeddable
+% with this XeLaTeX toolchain.
+\newcommand{\thumbsup}{\textcolor{accent}{\faThumbsUp}}
+\newcommand{\smiley}{\textcolor{accent}{\faGrinBeam}}
+
+% ---------- Colour -----------------------------------------------------
+\RequirePackage[table]{xcolor}
+\definecolor{ink}{HTML}{1E293B}
+\definecolor{primary}{HTML}{123B5D}
+\definecolor{primarylt}{HTML}{EAF1F7}
+\definecolor{accent}{HTML}{D98E2B}
+\definecolor{accentlt}{HTML}{FDF3E2}
+\definecolor{danger}{HTML}{B23A48}
+\definecolor{dangerlt}{HTML}{FBECEE}
+\definecolor{teal}{HTML}{0E7C7B}
+\definecolor{teallt}{HTML}{E7F4F3}
+\definecolor{muted}{HTML}{64748B}
+\definecolor{rule}{HTML}{D7E0E8}
+\definecolor{codebg}{HTML}{F5F7FA}
+\definecolor{tablealt}{HTML}{F4F7FA}
+
+\color{ink}
+
+% ---------- Page geometry ---------------------------------------------
+\RequirePackage[a4paper,top=2.65cm,bottom=2.45cm,left=2.35cm,right=2.35cm,
+  headheight=14pt,headsep=0.65cm,footskip=0.95cm]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 1.5pt minus 1pt}
+\linespread{1.06}
+\setlength{\emergencystretch}{2em}
+\clubpenalty=1000
+\widowpenalty=1000
+
+% ---------- Headers and footers ---------------------------------------
+\RequirePackage{fancyhdr}
+\RequirePackage{lastpage}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\fontsize{7.4}{9}\selectfont\color{muted}%
+  PYTHON DEBUGGING\enspace\textcolor{rule}{·}\enspace DAY \courseDay}
+\fancyhead[R]{\sffamily\fontsize{7.4}{9}\selectfont\color{muted}\courseShort}
+\fancyfoot[L]{\sffamily\fontsize{7.4}{9}\selectfont\color{muted}%
+  10-Day Python Debugging Course}
+\fancyfoot[R]{\sffamily\fontsize{7.4}{9}\selectfont\color{muted}%
+  \thepage\enspace\textcolor{rule}{/}\enspace\pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\color{rule}\hrule width\headwidth height 0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% ---------- Section styling -------------------------------------------
+\RequirePackage{titlesec}
+\RequirePackage{titletoc}
+
+\titleformat{\section}[block]
+  {\sffamily\Large\bfseries\color{primary}}
+  {\setlength{\fboxsep}{3.2pt}\colorbox{accent}{\textcolor{white}{\thesection}}}
+  {0.72em}{}
+  [\vspace{0.32em}{\color{rule}\titlerule[0.6pt]}]
+\titlespacing*{\section}{0pt}{17pt plus 5pt minus 3pt}{8pt}
+
+\titleformat{\subsection}[hang]
+  {\sffamily\large\bfseries\color{primary}}
+  {\textcolor{accent}{\rule[-0.16em]{2.6pt}{1.02em}}\hspace{0.5em}\thesubsection}
+  {0.55em}{}
+\titlespacing*{\subsection}{0pt}{12pt plus 3pt minus 2pt}{5pt}
+
+\titleformat{\subsubsection}[runin]
+  {\sffamily\bfseries\color{primary}}{}{0pt}{}
+  [\enspace]
+\titlespacing*{\subsubsection}{0pt}{8pt plus 2pt}{0.4em}
+
+% Numberless section headings (front matter, catalog letters, Parts)
+\titleformat{name=\section,numberless}[block]
+  {\sffamily\Large\bfseries\color{primary}}{}{0pt}{}
+  [\vspace{0.32em}{\color{rule}\titlerule[0.6pt]}]
+\titleformat{name=\subsection,numberless}[hang]
+  {\sffamily\large\bfseries\color{primary}}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{12pt plus 3pt minus 2pt}{5pt}
+
+\newcommand{\unnumberedsection}[1]{%
+  \section*{#1}%
+  \addcontentsline{toc}{section}{#1}%
+}
+\newcommand{\unnumberedsubsection}[1]{\subsection*{#1}}
+
+\renewcommand{\contentsname}{In this session}
+\titlecontents{section}[0pt]
+  {\addvspace{4.5pt}\sffamily\bfseries\color{primary}}
+  {\contentslabel{2.35em}}
+  {\hspace*{-2.35em}}
+  {\hfill\color{muted}\contentspage}
+\setcounter{tocdepth}{1}
+
+% ---------- Lists ------------------------------------------------------
+\RequirePackage{enumitem}
+\setlist[itemize]{leftmargin=1.35em,itemsep=2.5pt,topsep=3pt,parsep=0pt,
+  label={\textcolor{accent}{\raisebox{0.12em}{\scriptsize\textbullet}}}}
+\setlist[enumerate]{leftmargin=1.9em,itemsep=4pt,topsep=4pt,parsep=1pt,
+  label={\textcolor{accent}{\sffamily\bfseries\arabic*.}}}
+\setlist[itemize,2]{leftmargin=1.15em,itemsep=1.5pt,
+  label={\textcolor{accent}{\scriptsize--}}}
+\setlist[enumerate,2]{leftmargin=1.35em,itemsep=2pt,
+  label={\textcolor{accent}{\sffamily\bfseries\alph*.}}}
+\newlist{checklist}{itemize}{1}
+\setlist[checklist]{leftmargin=1.55em,itemsep=3.5pt,topsep=2pt,parsep=1pt,
+  label={\textcolor{teal}{\faSquare[regular]}}}
+
+% ---------- Tables -----------------------------------------------------
+\RequirePackage{booktabs}
+\RequirePackage{xltabular}
+\RequirePackage{ragged2e}
+\RequirePackage{needspace}
+\newcolumntype{Y}[1]{>{\hsize=#1\hsize\RaggedRight\arraybackslash}X}
+\newcommand{\thd}[1]{\textcolor{white}{\sffamily\bfseries #1}}
+
+\newcommand{\code}[1]{{\ttfamily\hyphenchar\font=-1\relax #1}}
+
+\newenvironment{datatable}[2]{%
+  \par\vspace{4pt}\begingroup
+  \renewcommand{\arraystretch}{1.32}%
+  \setlength{\tabcolsep}{4.5pt}%
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  #2%
+  \rowcolors{2}{white}{tablealt}%
+  \arrayrulecolor{rule}%
+}{%
+  \par\endgroup\vspace{5pt}%
+}
+
+% ---------- Code -------------------------------------------------------
+\RequirePackage{minted}
+\newminted[pycode]{python}{fontsize=\fontsize{8.7}{11.2}\selectfont,
+  breaklines=true,breakanywhere=true,breakindent=2em,breaksymbolleft={},breaksymbolright={},tabsize=4,autogobble,
+  bgcolor=codebg,frame=leftline,framerule=3pt,framesep=6pt,
+  rulecolor=\color{accent}}
+\newminted[shcode]{bash}{fontsize=\fontsize{8.7}{11.2}\selectfont,
+  breaklines=true,breakanywhere=true,breakindent=2em,breaksymbolleft={},breaksymbolright={},tabsize=4,autogobble,
+  bgcolor=codebg,frame=leftline,framerule=3pt,framesep=6pt,
+  rulecolor=\color{teal}}
+\newminted[replcode]{pycon}{fontsize=\fontsize{8.7}{11.2}\selectfont,
+  breaklines=true,breakanywhere=true,breakindent=2em,breaksymbolleft={},breaksymbolright={},tabsize=4,autogobble,
+  bgcolor=codebg,frame=leftline,framerule=3pt,framesep=6pt,
+  rulecolor=\color{teal}}
+\newminted[txtcode]{text}{fontsize=\fontsize{8.7}{11.2}\selectfont,
+  breaklines=true,breakanywhere=true,breakindent=2em,breaksymbolleft={},breaksymbolright={},tabsize=4,autogobble,
+  bgcolor=codebg,frame=leftline,framerule=3pt,framesep=6pt,
+  rulecolor=\color{muted}}
+% A fallback for the one code block that contains U+FFFD, which Source Code
+% Pro does not cover. DejaVu Sans Mono does.
+\newfontfamily\dejavumono{DejaVu Sans Mono}
+\newminted[utfcode]{python}{fontsize=\fontsize{8.7}{11.2}\selectfont,
+  breaklines=true,breakanywhere=true,breakindent=2em,breaksymbolleft={},breaksymbolright={},tabsize=4,autogobble,
+  formatcom=\dejavumono,
+  bgcolor=codebg,frame=leftline,framerule=3pt,framesep=6pt,
+  rulecolor=\color{accent}}
+
+% ---------- Boxes ------------------------------------------------------
+\RequirePackage[most]{tcolorbox}
+\RequirePackage{fontawesome5}
+
+% Clickable contents and PDF metadata. Bookmarks are disabled because several
+% section titles contain inline code and would need PDF-string escaping.
+\RequirePackage[hidelinks,bookmarks=false]{hyperref}
+\AtBeginDocument{%
+  \hypersetup{%
+    pdftitle={Day \courseDay: \courseFocus},
+    pdfauthor={10-Day Python Debugging Course},
+    pdfsubject={Python debugging course},
+    pdfkeywords={Python, debugging, unittest, CodeSignal, UTF-8},
+    pdfcreator={XeLaTeX and minted}%
+  }%
+}
+
+\tcbset{
+  coursebox/.style={
+    enhanced,breakable,
+    boxrule=0pt,leftrule=4pt,
+    arc=1.6pt,outer arc=1.6pt,
+    left=10pt,right=10pt,top=8pt,bottom=8pt,
+    fonttitle=\sffamily\bfseries\small,
+    titlerule=0pt,toptitle=1pt,bottomtitle=2pt,
+    before upper={\RaggedRight},
+    before skip=10pt,after skip=10pt,
+  }
+}
+
+\newtcolorbox{goalbox}[1][Today's goal]{coursebox,
+  colback=primarylt,colframe=primary,colbacktitle=primarylt,coltitle=primary,
+  title={\textcolor{primary}{\faBullseye}\enspace #1}}
+
+\newtcolorbox{keybox}[1][Key idea]{coursebox,
+  colback=accentlt,colframe=accent,colbacktitle=accentlt,coltitle=accent,
+  title={\textcolor{accent}{\faLightbulb}\enspace #1}}
+
+\newtcolorbox{trapbox}[1][Exam trap]{coursebox,
+  colback=dangerlt,colframe=danger,colbacktitle=dangerlt,coltitle=danger,
+  title={\textcolor{danger}{\faBug}\enspace #1}}
+
+\newtcolorbox{tipbox}[1][Practice tip]{coursebox,
+  colback=teallt,colframe=teal,colbacktitle=teallt,coltitle=teal,
+  title={\textcolor{teal}{\faWrench}\enspace #1}}
+
+\newtcolorbox{notebox}[1][Note]{coursebox,
+  colback=primarylt,colframe=primary,colbacktitle=primarylt,coltitle=primary,
+  title={\textcolor{primary}{\faInfoCircle}\enspace #1}}
+
+\newtcolorbox{replbox}[1][Try it in the REPL]{coursebox,
+  colback=codebg,colframe=teal,colbacktitle=codebg,coltitle=teal,
+  title={\textcolor{teal}{\faTerminal}\enspace #1}}
+
+\newtcolorbox{practicebox}[1][Practice lab]{coursebox,
+  colback=teallt,colframe=teal,colbacktitle=teallt,coltitle=teal,
+  title={\textcolor{teal}{\faLaptopCode}\enspace #1}}
+
+\newtcolorbox{checklistbox}[1][End-of-day checklist]{coursebox,
+  colback=teallt,colframe=teal,colbacktitle=teallt,coltitle=teal,
+  title={\textcolor{teal}{\faCheckSquare}\enspace #1}}
+
+\newtcolorbox{examlensbox}[1][Exam lens]{coursebox,
+  colback=primarylt,colframe=primary,colbacktitle=primarylt,coltitle=primary,
+  title={\textcolor{primary}{\faCrosshairs}\enspace #1}}
+
+\newtcolorbox{briefingbox}[1][The brief]{coursebox,
+  colback=primarylt,colframe=primary,colbacktitle=primarylt,coltitle=primary,
+  title={\textcolor{primary}{\faCompass}\enspace #1}}
+
+% ---------- Cover metadata --------------------------------------------
+\newcommand{\courseDay}{01}
+\newcommand{\courseDayInt}{1}
+\newcommand{\courseShort}{FOUNDATIONS}
+\newcommand{\courseTitle}{Python Foundations}
+\newcommand{\courseSubtitle}{Types, control flow, functions, lists, and the edit-test-fix loop.}
+\newcommand{\courseTime}{2--3 hours}
+\newcommand{\courseFocus}{Core Python}
+\newcommand{\courseFolder}{day01\_foundations}
+\newcommand{\courseEyebrow}{DAY 01\enspace\textcolor{rule}{·}\enspace FOUNDATIONS}
+\newcommand{\courseTopics}{\topic{Types}\topic{Control flow}\topic{Functions}\topic{Lists}\topic{unittest}}
+\newcommand{\courseGoal}{}
+\newcommand{\courseNext}{Turn the page to Day 2.}
+\newcommand{\courseTestCount}{0}
+
+\newcommand{\topic}[1]{%
+  {\setlength{\fboxsep}{3.4pt}%
+   \colorbox{primarylt}{\textcolor{primary}{\sffamily\fontsize{8}{9}\selectfont #1}}}%
+  \hspace{0.3em}%
+}
+
+\newcommand{\progressbar}{%
+  \begingroup
+  \setlength{\fboxsep}{0pt}%
+  \count255=1
+  \loop
+    \ifnum\count255>\courseDayInt\relax
+      \colorbox{rule}{\rule{0.68cm}{0.14cm}}%
+    \else
+      \colorbox{accent}{\rule{0.68cm}{0.14cm}}%
+    \fi
+    \ifnum\count255<10\relax\hspace{0.18em}\fi
+    \advance\count255 by 1
+  \ifnum\count255<11 \repeat
+  \endgroup
+}
+
+\newcommand{\makecover}{%
+  \begin{titlepage}
+    \thispagestyle{empty}%
+    \begin{tikzpicture}[remember picture,overlay]
+      % top band
+      \fill[primary] (current page.north west)
+        rectangle ([yshift=-4.55cm]current page.north east);
+      \fill[accent] ([yshift=-4.55cm]current page.north west)
+        rectangle ([yshift=-4.68cm]current page.north east);
+      \fill[accent] (current page.north west)
+        rectangle ([xshift=0.52cm,yshift=-4.55cm]current page.north west);
+      % course identity
+      \node[anchor=north west,text=white,align=left,
+            font=\sffamily\bfseries\fontsize{9}{11}\selectfont]
+        at ([xshift=2.0cm,yshift=-1.55cm]current page.north west)
+        {10-DAY PYTHON DEBUGGING COURSE\\[3pt]
+         \normalfont\fontsize{8}{10}\selectfont
+         \textcolor{white!72!primary}{Anthropic Fellowship\enspace\textperiodcentered\enspace Technical Test Prep}};
+      % day, top right
+      \node[anchor=north east,text=white!72!primary,
+            font=\sffamily\bfseries\fontsize{8}{9}\selectfont]
+        at ([xshift=-2.0cm,yshift=-0.78cm]current page.north east) {DAY};
+      \node[anchor=north east,text=white,
+            font=\sffamily\bfseries\fontsize{38}{38}\selectfont]
+        at ([xshift=-2.0cm,yshift=-1.22cm]current page.north east) {\courseDay};
+      % title block, precisely placed below the band
+      \node[anchor=north west,text width=12.6cm,align=left,inner sep=0pt]
+        at ([xshift=2.0cm,yshift=-5.18cm]current page.north west) {%
+          {\sffamily\bfseries\fontsize{9}{11}\selectfont\color{accent}\courseEyebrow}\par
+          \vspace{0.55em}%
+          {\sffamily\bfseries\fontsize{30}{35}\selectfont\color{primary}\courseTitle}\par
+          \vspace{0.62em}%
+          {\fontsize{12.5}{16}\selectfont\color{muted}\courseSubtitle}\par
+          \vspace{1.05em}%
+          {\sffamily\fontsize{8.8}{11}\selectfont\color{muted}%
+            \textcolor{accent}{\faClock}\enspace\courseTime
+            \quad\textcolor{rule}{/}\quad
+            \textcolor{accent}{\faFolderOpen}\enspace\texttt{\courseFolder}
+            \quad\textcolor{rule}{/}\quad
+            \textcolor{accent}{\faBullseye}\enspace\courseFocus}\par
+        };
+      % progress and topics, bottom centre
+      \node[anchor=south,align=center,inner sep=0pt,text width=12cm]
+        at ([yshift=2.05cm]current page.south) {%
+          {\sffamily\fontsize{7.2}{9}\selectfont\color{muted}INSIDE THIS BOOKLET}\par
+          \vspace{0.45em}%
+          {\courseTopics}\par
+          \vspace{1.0em}%
+          {\progressbar}\par
+          \vspace{0.45em}%
+          {\sffamily\fontsize{8.5}{10}\selectfont\color{muted}Day \courseDayInt\ of 10}\par
+        };
+      % imprint
+      \node[anchor=south west,text=muted,
+            font=\sffamily\fontsize{7.5}{9}\selectfont]
+        at ([xshift=2.0cm,yshift=1.35cm]current page.south west)
+        {Python Debugging Course\enspace\textcolor{rule}{\textperiodcentered}\enspace 2026};
+    \end{tikzpicture}%
+  \end{titlepage}%
+}
+
+\newcommand{\makefrontmatter}{%
+  \section*{How to use this booklet}
+  Each day is a working session, not a reading assignment. This booklet is the
+  typeset version of the day's \texttt{README.md}: keep the folder open, type
+  the examples into a Python REPL, and run the tests as you go. The
+  \emph{Exam lens} and end-of-day review are study aids added to the
+  original material.
+  \par\vspace{0.9em}%
+  \noindent
+  \begin{minipage}[t]{0.232\linewidth}\RaggedRight
+    \textcolor{accent}{\rule{\linewidth}{1.4pt}}\par\vspace{5pt}
+    {\color{accent}\Large\faBookOpen}\par\vspace{2pt}
+    {\sffamily\bfseries\small Read \& type}\par
+    {\fontsize{8.2}{10.4}\selectfont\color{muted}Type every example. Predict the output first.}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.232\linewidth}\RaggedRight
+    \textcolor{accent}{\rule{\linewidth}{1.4pt}}\par\vspace{5pt}
+    {\color{accent}\Large\faKeyboard}\par\vspace{2pt}
+    {\sffamily\bfseries\small Practice}\par
+    {\fontsize{8.2}{10.4}\selectfont\color{muted}Implement or debug one test at a time.}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.232\linewidth}\RaggedRight
+    \textcolor{accent}{\rule{\linewidth}{1.4pt}}\par\vspace{5pt}
+    {\color{accent}\Large\faCheckCircle}\par\vspace{2pt}
+    {\sffamily\bfseries\small Test}\par
+    {\fontsize{8.2}{10.4}\selectfont\color{muted}Run the suite. Read the first failing line.}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.232\linewidth}\RaggedRight
+    \textcolor{accent}{\rule{\linewidth}{1.4pt}}\par\vspace{5pt}
+    {\color{accent}\Large\faBug}\par\vspace{2pt}
+    {\sffamily\bfseries\small Log}\par
+    {\fontsize{8.2}{10.4}\selectfont\color{muted}Record each bug in \texttt{bug\_journal.md}.}
+  \end{minipage}
+  \par\vspace{1.1em}%
+  {\sffamily\fontsize{9}{11}\selectfont\textbf{You will need:}\enspace
+   Python 3.10+\enspace\textcolor{rule}{·}\enspace
+   a terminal\enspace\textcolor{rule}{·}\enspace
+   \texttt{\courseFolder/}\enspace\textcolor{rule}{·}\enspace
+   the course runner \texttt{python run.py \courseDayInt}}\par
+  \vspace{0.8em}%
+  \tableofcontents
+  \clearpage
+}
+
+\newcommand{\scoreline}{%
+  \ifnum\courseTestCount>0\relax
+    \par\vspace{5pt}\noindent
+    {\sffamily\bfseries\small\color{primary}Score:}\enspace
+    \textcolor{primary}{\rule{2.4cm}{0.6pt}}\enspace/\enspace\courseTestCount
+    \hspace{2.2em}%
+    {\sffamily\bfseries\small\color{primary}Bugs found:}\enspace
+    \textcolor{primary}{\rule{1.5cm}{0.6pt}}%
+  \fi
+}
+
+\newcommand{\bugjournal}{%
+  \Needspace{9\baselineskip}%
+  \par\vspace{13pt}%
+  \noindent{\sffamily\bfseries\color{primary}\faBug\enspace Tonight's bug journal}\par
+  \vspace{3pt}%
+  \begingroup
+  \renewcommand{\arraystretch}{1.5}%
+  \setlength{\tabcolsep}{5pt}%
+  \arrayrulecolor{rule}%
+  \begin{tabularx}{\linewidth}{@{}>{\RaggedRight\arraybackslash}X
+                              >{\RaggedRight\arraybackslash}X
+                              >{\RaggedRight\arraybackslash}X@{}}
+    \rowcolor{primarylt}
+    {\sffamily\bfseries\footnotesize Where} &
+    {\sffamily\bfseries\footnotesize Symptom} &
+    {\sffamily\bfseries\footnotesize Root cause / fix} \\
+    \hline
+    \rule{0pt}{1.35em} & & \\ \hline
+    \rule{0pt}{1.35em} & & \\ \hline
+    \rule{0pt}{1.35em} & & \\
+  \end{tabularx}
+  \endgroup
+  \par\vspace{3pt}%
+  {\sffamily\fontsize{7.6}{9}\selectfont\color{muted}One row per bug. Re-read this page on Day 10.}\par
+}
+
+\newcommand{\bugjournalifspace}{%
+  \par
+  \begingroup
+  \dimen0=\pagegoal
+  \advance\dimen0 by -\pagetotal
+  \ifdim\dimen0>5cm\relax
+    \endgroup
+    \bugjournal
+  \else
+    \endgroup
+  \fi
+}
+
+\newcommand{\notesarea}{%
+  \Needspace{7\baselineskip}%
+  \par\vspace{14pt}%
+  \noindent{\sffamily\bfseries\color{primary}\faPen\enspace Notes \& questions}\par
+  \vspace{2pt}%
+  \begingroup\color{rule}%
+  \noindent\rule{\linewidth}{0.4pt}\par\vspace{1.65em}%
+  \noindent\rule{\linewidth}{0.4pt}\par\vspace{1.65em}%
+  \noindent\rule{\linewidth}{0.4pt}\par\vspace{1.65em}%
+  \noindent\rule{\linewidth}{0.4pt}\par\vspace{1.65em}%
+  \noindent\rule{\linewidth}{0.4pt}\par
+  \endgroup
+}
+
+\newcommand{\makeclosing}{%
+  \par\vspace{12pt}%
+  \begin{center}
+    {\color{accent}\rule{2.2cm}{1pt}}\par
+    \vspace{4pt}%
+    {\sffamily\fontsize{8.5}{10}\selectfont\color{muted}\courseNext}
+  \end{center}
+}
+
+\endinput

@@ -1,0 +1,371 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{08}
+\renewcommand{\courseDayInt}{8}
+\renewcommand{\courseShort}{SPEC-DRIVEN}
+\renewcommand{\courseTitle}{Code from\\a Spec}
+\renewcommand{\courseSubtitle}{Turning a written spec into correct encoders and parsers.}
+\renewcommand{\courseTime}{3 hours}
+\renewcommand{\courseFocus}{Spec implementation}
+\renewcommand{\courseFolder}{day08\_spec\_driven}
+\renewcommand{\courseEyebrow}{DAY 08\enspace\textcolor{rule}{\textperiodcentered}\enspace SPEC-DRIVEN}
+\renewcommand{\courseTopics}{\topic{Specs}\topic{Parsers}\topic{Encodings}\topic{Round-trips}}
+\renewcommand{\courseNext}{Turn the page to Day 9.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Turn a written spec into correct code fast. In the exam the spec describes an algorithm and the code claims to implement it; your job is to make the code match. Today you build four encoders/decoders from a spec, which trains the two skills you need: \textbf{reading specs precisely} and \textbf{byte-level parsing}.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Turn a written spec into correct code fast. In the exam the spec describes an algorithm and the code claims to implement it; your job is to make the code match. Today you build four encoders/decoders from a spec, which trains the two skills you need: \textbf{reading specs precisely} and \textbf{byte-level parsing}.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why encoders and decoders?}
+An \textbf{encoder} turns some data (numbers, text, lists) into a sequence of bytes or characters, following a set of rules called a \textbf{format}. A \textbf{decoder} reads that format and rebuilds the original data. UTF-8 from Day 5 is one example: \code{.encode(\allowbreak{})\allowbreak{}} and \code{.decode(\allowbreak{})\allowbreak{}}.
+They make ideal practice for this exam, for three reasons:
+\begin{enumerate}
+\item \textbf{Their specs are precise down to the last bit}, so “almost right” is simply wrong. That’s exactly how the exam is graded: a test either passes or it doesn’t.
+\item \textbf{Every decoder is a parsing loop}: a position that moves through the input, reading one piece at a time. That’s the same structure as the UTF-8 decoder (Day 5), the tokenizer (Day 9) and the snapshot reader (Day 10).
+\item \textbf{They come in pairs}, so you can always test one against the other.
+\end{enumerate}
+The four formats today are all real and widely used: \textbf{base64} (email attachments, images embedded in web pages), \textbf{varints} (Google’s Protocol Buffers, WebAssembly), \textbf{percent-encoding} (every URL you’ve ever seen), and \textbf{bencode} (BitTorrent).
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{How to read a spec (do this on exam day too)}
+A spec is a list of promises the code must keep. A planted bug usually breaks \emph{one specific promise} while keeping the overall idea intact. So if you read the spec loosely (“it encodes stuff in base64, fine”), you’ll miss exactly the detail that’s wrong. Reading precisely means turning every sentence into something you could check.
+\begin{enumerate}
+\item \textbf{Read it all once, fast.} Get the shape: inputs, outputs, main steps.
+\item \textbf{Second pass with a pen:} turn every sentence into a checklist item. Underline the words that change behaviour: \emph{inclusive, exclusive, first, last, ties, at most, at least, sorted, stable, case-insensitive, bytes, characters, UTF-8, big-endian, padding, raise, ignore, skip, empty}.
+\item \textbf{Write tiny examples by hand} for each rule (e.g. “\code{'é'} → \code{C3\ A9} → \code{w6k=\allowbreak{}}”). These are your mental test cases.
+\item \textbf{Map each checklist item to code} (in the exam: to the line that is supposed to implement it). A checklist item with no matching code, or code with no matching item, is a suspect.
+\item \textbf{The tests are the final word.} Where the spec is vague, read the test that covers it.
+\end{enumerate}
+\Needspace{10\baselineskip}
+\subsection{An example of step 2}
+Here’s one sentence from today’s bencode spec:
+\textgreater{} \emph{“keys are encoded as byte strings and SORTED BY THEIR RAW BYTES ... Raise ValueError for ... unsorted or duplicate dict \textgreater{} keys.”}
+Broken into checkable items, that’s:
+\begin{checklist}
+\item the encoder turns every key into bytes;
+\item the encoder sorts the keys;
+\item the sort compares \textbf{bytes}, not the original strings;
+\item the decoder checks that keys arrive in sorted order, and raises \code{ValueError} if not;
+\item the decoder raises \code{ValueError} for a duplicate key.
+\end{checklist}
+Five items from one sentence. In exam code, each should correspond to a line. If you can’t find the line that checks for duplicates, you’ve probably found a bug, without running a single test.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{Two ways to write a decoder}
+Every decoder you’ll meet has one of two shapes. Recognising which one you’re looking at tells you where the bugs are likely to be.
+\Needspace{10\baselineskip}
+\subsection{Shape 1: cursor-based parsing}
+\begin{keybox}[Cursor-based parsing]
+\textbf{Cursor-based parsing} — every decoder in this course uses this shape:
+\end{keybox}
+\Needspace{11\baselineskip}
+\begin{pycode}
+def decode(data):
+    pos = 0
+    def need(n):                      # helper: are there n more bytes?
+        if pos + n > len(data):
+            raise ValueError("truncated")
+    out = []
+    while pos < len(data):
+        ...read a header at data[pos]...
+        pos += consumed               # ALWAYS advance
+    return out
+\end{pycode}
+The \textbf{cursor} is \code{pos}, the position of the next byte that hasn’t been read yet. Each time round the loop, the decoder looks at the data at \code{pos}, works out what kind of item starts there and how long it is, reads it, and moves \code{pos} past it. It’s like reading a sentence with your finger under the current word.
+Two parts of this shape deserve attention:
+\begin{itemize}
+\item \textbf{The \code{need(\allowbreak{}n)\allowbreak{}} helper} puts the question “are there at least \code{n} bytes left?” in one place, and every read calls it first. If a read skips this check, slicing past the end silently returns \emph{fewer} bytes than asked for (slices never raise, Day 1), and the decoder carries on with bad data instead of raising the \code{ValueError} the spec requires. That’s a very common planted bug.
+\item \textbf{“Always advance.”} If any branch forgets to move \code{pos} forward, the loop reads the same item forever.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Shape 2: recursive descent}
+\begin{keybox}[Recursive descent]
+\textbf{Recursive descent} for nested formats (JSON, bencode): a function \code{parse\_value(\allowbreak{}data,\allowbreak{}\ pos)\allowbreak{}\ -\textgreater{}\allowbreak{}\ (\allowbreak{}value,\allowbreak{}\ new\_pos)\allowbreak{}} that dispatches on the first byte, calling itself for nested values. Returning the new position is the key idea.
+\end{keybox}
+Some formats can nest: a list can contain lists, which contain dicts, which contain more lists... A flat loop can’t handle that, because you don’t know in advance how deep the nesting goes. The solution is a function that \textbf{calls itself}. That’s called \emph{recursion}.
+\code{parse\_value(\allowbreak{}data,\allowbreak{}\ pos)\allowbreak{}} looks at the byte at \code{pos} and decides what kind of value starts there. If it’s a simple value (a number), it reads it. If it’s a list, it reads the list’s items by calling \code{parse\_value} again for each one, and an item might itself be a list, which calls \code{parse\_value} again, and so on. The nesting in the data is mirrored by the nesting of the function calls.
+The crucial detail is that \textbf{every call returns two things: the value it read, and the position where it stopped}. The caller needs that position to know where the next item starts:
+\Needspace{8\baselineskip}
+\begin{pycode}
+def parse_list(data, pos):          # data[pos] is the opening "l"
+    pos += 1                        # skip the "l"
+    items = []
+    while data[pos:pos+1] != b"e":  # until the closing "e"
+        item, pos = parse_value(data, pos)   # read one item AND move past it
+        items.append(item)
+    return items, pos + 1           # skip the "e"
+\end{pycode}
+A classic bug is to ignore the returned position (\code{item,\allowbreak{}\ \_\ =\allowbreak{}\ parse\_value(\allowbreak{}data,\allowbreak{}\ pos)\allowbreak{}}), so the same item is read again and again.
+\Needspace{10\baselineskip}
+\subsection{The round-trip property}
+\begin{keybox}[Round-trip property]
+For any encoder/decoder pair, \code{decode(\allowbreak{}encode(\allowbreak{}x)\allowbreak{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ x} for all valid x. Easy to test with random inputs — use it in your scratch scripts.
+\end{keybox}
+If you encode something and then decode the result, you must get back exactly what you started with. This gives you a free test without needing to know the correct encoded output: generate random inputs, round-trip them, and compare (the differential testing from Day 6). It doesn’t prove the encoding follows the format (a wrong-but-consistent pair would also round-trip), but it catches most decoder bugs instantly.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{Storing integers as bytes}
+Binary formats constantly need to store integers: lengths, counts, ids. There are two approaches.
+\Needspace{10\baselineskip}
+\subsection{Fixed width: always the same number of bytes}
+The simplest approach is to decide that a number always takes, say, 4 bytes. The decoder knows to read exactly 4 bytes. Python does the conversion with \code{to\_bytes} and \code{from\_bytes} (Day 5):
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> (300).to_bytes(4, "big")       # 300 = 0x012C
+b'\x00\x00\x01,'
+>>> int.from_bytes(b"\x00\x00\x01\x2c", "big")
+300
+\end{txtcode}
+(The \code{,\allowbreak{}} is just how Python displays the byte 0x2C, which happens to be the comma character.)
+To see what \code{to\_bytes} does inside: the byte at position \code{k} (counting from the low end) is \code{(\allowbreak{}n\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ (\allowbreak{}8\ *\ k)\allowbreak{})\allowbreak{}\ \&\allowbreak{}\ 0xFF}, i.e. shift that byte down to the bottom and keep 8 bits. For example \code{(\allowbreak{}300\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 8)\allowbreak{}\ \&\allowbreak{}\ 0xFF} is 1, the second byte.
+The weakness of fixed width is waste: storing the number 5 in 4 bytes means three of them are just zeros.
+\Needspace{10\baselineskip}
+\subsection{Variable width: varints (LEB128)}
+A \textbf{varint} (“variable-length integer”) uses fewer bytes for small numbers and more for big ones. Small numbers are far more common in practice (lengths, small ids), so this saves a lot of space. The format used here is called \textbf{LEB128}.
+The rules:
+\begin{itemize}
+\item Cut the number into \textbf{groups of 7 bits}, starting from the low end.
+\item Each group goes into one byte, \textbf{lowest group first}.
+\item The 8th bit (the top bit, value \code{0x80}) of each byte is a \textbf{flag}: 1 means “more bytes follow”, 0 means “this is the last byte”.
+\end{itemize}
+Varint / LEB128 (Protocol Buffers, WebAssembly, many token formats): 7 bits of payload per byte, least-significant group first, high bit \code{0x80} = “more bytes follow”.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+300 = 0b1_0010_1100
+groups of 7 (low first): 010_1100, 000_0010
+bytes: 0xAC (0x2C | 0x80, more follow), 0x02 (last)
+\end{txtcode}
+Let’s go through that example slowly:
+\begin{enumerate}
+\item 300 in binary is \code{100101100} (256 + 32 + 8 + 4).
+\item Cut it into 7-bit groups from the right: the low group is \code{0101100} (= 0x2C = 44), and what’s left is \code{10} (= 2).
+\item The first byte holds the low group, with the “more follows” flag set: \code{0x2C\ \textbar{}\allowbreak{}\ 0x80} = \code{0xAC}.
+\item The second byte holds the remaining group, with the flag off because it’s the last: \code{0x02}.
+\end{enumerate}
+So 300 is stored as the two bytes \code{AC\ 02}. Any number below 128 fits in a single byte, with the flag off.
+\textbf{Encoding}, as a procedure: while the number is 128 or more, output its low 7 bits (\code{n\ \&\allowbreak{}\ 0x7F}) with the flag set (\code{\textbar{}\allowbreak{}\ 0x80}), then drop those 7 bits (\code{n\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}=\allowbreak{}\ 7}). When what’s left is below 128, output it as the final byte, without the flag. A \code{bytearray} (Day 5) is the natural place to collect the output.
+\textbf{Decoding} reverses it. Keep a running \code{result} (starting at 0) and a \code{shift} (starting at 0). For each byte: take its low 7 bits, move them into place with \code{\textless{}\allowbreak{}\textless{}\allowbreak{}\ shift}, and OR them into \code{result}. Then, if the byte’s flag is off, you’re done. Otherwise add 7 to \code{shift} and read the next byte. Here’s the trace for \code{AC\ 02}:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.45}Y{0.76}Y{1.29}Y{0.87}Y{1.63}@{}}
+\rowcolor{primary}
+\thd{byte} & \thd{low 7 bits} & \thd{shifted into place} & \thd{result} & \thd{flag} \\ \hline
+\endhead
+\code{0xAC} & \code{0x2C} = 44 & \code{44\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 0} = 44 & 44 & on, so continue, shift = 7 \\
+\code{0x02} & \code{0x02} = 2 & \code{2\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 7} = 256 & 44 + 256 = \textbf{300} & off, so stop \\
+\hline
+\end{xltabular}
+\end{datatable}
+The \code{shift} grows because \emph{later} bytes hold \emph{higher} groups. That’s what “least significant group first” means. If the data runs out while the flag still says “more follows”, the varint is truncated, and the spec says to raise \code{ValueError}.
+Typical bugs: the groups put together in the wrong order (shifting the \emph{result} instead of the new bits), forgetting to set or test \code{0x80}, or not noticing that the data ended in the middle of a varint.
+\Needspace{10\baselineskip}
+\subsection{Negative numbers: ZigZag}
+Varints only work for non-negative numbers. To store a negative number, you first map it to a non-negative one, in a way that keeps numbers \emph{close to zero} small, whether they’re positive or negative. \textbf{ZigZag} does this by interleaving them:
+ZigZag maps signed to unsigned so small negatives stay small: \code{0→0,\allowbreak{}\ -1→1,\allowbreak{}\ 1→2,\allowbreak{}\ -2→3,\allowbreak{}\ ...} \code{zz\ =\allowbreak{}\ (\allowbreak{}n\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 1)\allowbreak{}\ \textasciicircum{}\ (\allowbreak{}n\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 63)\allowbreak{}} for 64-bit ints; in Python simply \code{2*n\ if\ n\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0\ else\ -2*n\ -\ 1}.
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.35}Y{0.94}Y{0.94}Y{0.94}Y{0.94}Y{0.94}Y{0.95}@{}}
+\rowcolor{primary}
+\thd{n} & \thd{0} & \thd{−1} & \thd{1} & \thd{−2} & \thd{2} & \thd{−3} \\ \hline
+\endhead
+zigzag(n) & 0 & 1 & 2 & 3 & 4 & 5 \\
+\hline
+\end{xltabular}
+\end{datatable}
+Positive numbers go to even codes (\code{2n}) and negative numbers to odd codes (\code{-2n\ -\ 1}). To decode, look at whether the code is even or odd: \code{z\ /\allowbreak{}/\allowbreak{}\ 2} if \code{z} is even, \code{-(\allowbreak{}z\ +\ 1)\allowbreak{}\ /\allowbreak{}/\allowbreak{}\ 2} if it’s odd. (The bit-trick formula is what you’d see in C code. In Python the plain arithmetic version is clearer.)
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{Base64: bytes as safe text}
+\Needspace{10\baselineskip}
+\subsection{What it’s for}
+Some places can only carry ordinary printable text: email bodies, JSON documents, URLs, HTML. Raw bytes (an image, say) contain values that would be misread as control characters or cut off. \textbf{Base64} writes any bytes using only 64 “safe” characters: \code{A–Z}, \code{a–z}, \code{0–9}, \code{+} and \code{/\allowbreak{}}. The price is size: the result is about a third bigger than the original.
+\Needspace{10\baselineskip}
+\subsection{How it works}
+Each base64 character can stand for 64 different values, which is exactly 6 bits (2⁶ = 64). Bytes are 8 bits. The smallest whole number of bytes that splits evenly into 6-bit pieces is 3 bytes = 24 bits = 4 pieces. So base64 works on \textbf{groups of 3 bytes, turning each group into 4 characters}:
+Take bytes 3 at a time = 24 bits, split into four 6-bit numbers, map each to \code{A–Z\ a–z\ 0–9\ +\ /\allowbreak{}}. If the last group has 1 byte: emit 2 chars + \code{=\allowbreak{}=\allowbreak{}}; 2 bytes: 3 chars + \code{=\allowbreak{}}.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+"Man" = 4D 61 6E = 010011 010110 000101 101110 = 19 22 5 46 = T W F u -> "TWFu"
+"Ma"  = 4D 61    = 010011 010110 0001(00)      = 19 22 4    = T W E = -> "TWE="
+\end{txtcode}
+The first example, step by step:
+\begin{enumerate}
+\item The text \code{\textquotedbl{}Man\textquotedbl{}} is the three bytes \code{4D\ 61\ 6E}.
+\item In binary that’s \code{01001101\ 01100001\ 01101110}, 24 bits in a row.
+\item Re-cut them into four groups of 6 bits: \code{010011} \code{010110} \code{000101} \code{101110}, which are the numbers 19, 22, 5 and 46.
+\item Look each number up in the alphabet. Positions 0–25 are \code{A}–\code{Z}, 26–51 are \code{a}–\code{z}, 52–61 are \code{0}–\code{9}, 62 is \code{+} and 63 is \code{/\allowbreak{}}. So 19 → \code{T}, 22 → \code{W}, 5 → \code{F}, 46 → \code{u}. The result is \code{\textquotedbl{}TWFu\textquotedbl{}}.
+\end{enumerate}
+When the input length isn’t a multiple of 3, the last group is short. With 2 bytes (16 bits), pad with zeros to 18 bits, which is three 6-bit pieces, write 3 characters, and add one \code{=\allowbreak{}} so the output length stays a multiple of 4. With 1 byte (8 bits), pad to 12 bits, write 2 characters, and add \code{=\allowbreak{}=\allowbreak{}}.
+You can check any example in the REPL with the standard library:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> import base64
+>>> base64.b64encode(b"Ma")
+b'TWE='
+\end{txtcode}
+A strict decoder must reject an input whose length isn’t a multiple of 4, characters outside the alphabet, and \code{=\allowbreak{}} in any place other than the last one or two positions.
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Percent-encoding: making text safe for URLs}
+\Needspace{10\baselineskip}
+\subsection{What it’s for}
+URLs may only contain a limited set of ASCII characters. Spaces, accents, \code{\&\allowbreak{}}, \code{?}, \code{/\allowbreak{}} and emoji either aren’t allowed or have special meanings. \textbf{Percent-encoding} replaces each such character with \code{\%} followed by two hex digits. You’ve seen it in addresses like \code{.../\allowbreak{}search?q=\allowbreak{}caf\%C3\%A9}.
+\Needspace{10\baselineskip}
+\subsection{The rule}
+Encode the string to UTF-8; every byte that is not “unreserved” (\code{A–Z\ a–z\ 0–9\ -\ .\ \_\ \textasciitilde{}}) becomes \code{\%XX} (uppercase hex). Decoding: turn \code{\%XX} back into bytes, collect ALL bytes, then decode UTF-8 once. \code{\textquotedbl{}café\textquotedbl{}} → \code{caf\%C3\%A9}.
+The key point, which connects to Day 5: the escaping works on \textbf{bytes}, not characters. \code{é} is two bytes in UTF-8 (\code{C3\ A9}), so it becomes \emph{two} escapes, \code{\%C3\%A9}, not \code{\%E9} (its code point). A space is the single byte 0x20, so it becomes \code{\%20}.
+Decoding goes the other way: each \code{\%XX} becomes one byte, and other characters are kept as their own bytes. Then \textbf{all} the bytes are decoded as UTF-8 \emph{at the end}. \code{\%C3} on its own isn’t a character, only half of one, so decoding each escape separately would fail. It’s the same “join the bytes first, then decode once” rule as for tokenizers.
+Typical bugs: escaping code points instead of bytes, lowercase hex digits (\code{\%c3}) where the spec demands uppercase, and decoding each \code{\%XX} separately.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{Bencode: nested data, BitTorrent style}
+\Needspace{10\baselineskip}
+\subsection{What it is}
+\textbf{Bencode} is a compact format for nested data: integers, byte strings, lists and dictionaries. It’s similar in purpose to JSON, but much simpler to parse, because every value starts with a character that tells you its type. That makes it the perfect recursive-descent exercise.
+\Needspace{10\baselineskip}
+\subsection{The four kinds of value}
+\begin{itemize}
+\item integer: \code{i42e}, \code{i-7e}, \code{i0e}. (\code{i-0e}, leading zeros like \code{i03e} are invalid)
+\item byte string: \code{\textless{}\allowbreak{}length\textgreater{}\allowbreak{}:\allowbreak{}\textless{}\allowbreak{}bytes\textgreater{}\allowbreak{}} → \code{4:\allowbreak{}spam}. \textbf{The length counts bytes}, so \code{\textquotedbl{}é\textquotedbl{}} is \code{2:\allowbreak{}\textbackslash{}xc3\textbackslash{}xa9}.
+\item list: \code{l\textless{}\allowbreak{}items\textgreater{}\allowbreak{}e} → \code{l4:\allowbreak{}spami42ee}
+\item dict: \code{d\textless{}\allowbreak{}key\textgreater{}\allowbreak{}\textless{}\allowbreak{}value\textgreater{}\allowbreak{}...e}, keys are byte strings \textbf{sorted} by their raw bytes → \code{d3:\allowbreak{}cow3:\allowbreak{}moo4:\allowbreak{}spam4:\allowbreak{}eggse}
+\end{itemize}
+Each in more detail:
+\begin{itemize}
+\item \textbf{Integers} are written between \code{i} and \code{e}. The forbidden forms (\code{-0}, leading zeros) exist so that every number has exactly \emph{one} valid encoding, the same idea as the ban on overlong sequences in UTF-8.
+\item \textbf{Byte strings} start with their length, then a colon, then exactly that many bytes. No closing marker is needed, because the length says where the string ends. This is called a \textbf{length-prefixed} string. It’s why a string can contain \emph{any} bytes, even \code{e} or \code{:\allowbreak{}}, without confusing the decoder. And the length counts bytes, not characters: that’s Day 5 again.
+\item \textbf{Lists} are \code{l}, then the items one after another, then \code{e}.
+\item \textbf{Dicts} are \code{d}, then key, value, key, value, ..., then \code{e}. The keys must appear sorted.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Decoding an example by hand}
+Let’s decode \code{l4:\allowbreak{}spami42ee} the way a recursive-descent decoder would:
+\begin{enumerate}
+\item Position 0 is \code{l}: a list starts. Read items until an \code{e}.
+\item Position 1 is \code{4}, a digit, so a byte string starts. Read the length up to the \code{:\allowbreak{}}, which is 4, then take the next 4 bytes: \code{spam}. We’re now at position 7.
+\item Position 7 is \code{i}: an integer. Read up to the next \code{e}: \code{42}. We’re now at position 11.
+\item Position 11 is \code{e}: the list ends.
+\end{enumerate}
+The result is \code{[\textquotedbl{}spam\textquotedbl{},\allowbreak{}\ 42]}. Notice how each step started exactly where the previous one stopped. That’s the returned position from section 2 at work.
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{The toolbox: Python you’ll meet in today’s exercises}
+\Needspace{10\baselineskip}
+\subsection{A string as a lookup table: \code{ALPHABET[i]} and \code{ALPHABET.find(\allowbreak{}c)\allowbreak{}}}
+Base64 maps the numbers 0–63 to 64 characters. The simplest way to store that mapping is a 64-character string:
+\Needspace{2\baselineskip}
+\begin{pycode}
+ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+ALPHABET[0]        # 'A'    number -> character: just index the string
+ALPHABET.find("c") # 28     character -> number: find its position
+ALPHABET.find("!") # -1     not in the alphabet
+\end{pycode}
+\code{find} returns \code{-1} for “not found” (Day 2, section 2), so a decoder checks \code{if\ idx\ \textless{}\allowbreak{}\ 0:\allowbreak{}\ raise\ ValueError(\allowbreak{}...)\allowbreak{}}. Using \code{-1} as an index without that check would silently read the \emph{last} character, \code{\textquotedbl{}/\allowbreak{}\textquotedbl{}}.
+\Needspace{10\baselineskip}
+\subsection{Hex digits in text: \code{int(\allowbreak{}h,\allowbreak{}\ 16)\allowbreak{}} and \code{f\textquotedbl{}\{b:\allowbreak{}02X\}\textquotedbl{}}}
+\code{int} takes an optional second argument, the base: \code{int(\allowbreak{}\textquotedbl{}ff\textquotedbl{},\allowbreak{}\ 16)\allowbreak{}} is 255, \code{int(\allowbreak{}\textquotedbl{}101\textquotedbl{},\allowbreak{}\ 2)\allowbreak{}} is 5. That’s how \code{\%C3} in a URL becomes the byte \code{0xC3}. In the other direction, the format spec \code{02X} writes a number as \textbf{uppercase} hexadecimal with at least 2 digits: \code{f\textquotedbl{}\%\{195:\allowbreak{}02X\}\textquotedbl{}} is \code{\textquotedbl{}\%C3\textquotedbl{}}, and \code{f\textquotedbl{}\{5:\allowbreak{}02X\}\textquotedbl{}} is \code{\textquotedbl{}05\textquotedbl{}} (Day 2, section 4; lowercase \code{x} gives lowercase digits).
+\Needspace{10\baselineskip}
+\subsection{Padding and counting padding}
+Bytes have the same \code{ljust} as strings (Day 2): \code{b\textquotedbl{}ab\textquotedbl{}.ljust(\allowbreak{}3,\allowbreak{}\ b\textquotedbl{}\textbackslash{}x00\textquotedbl{})\allowbreak{}} is \code{b\textquotedbl{}ab\textbackslash{}x00\textquotedbl{}}, which fills a short final group up to 3 bytes with zero bytes.
+To count how many \code{=\allowbreak{}} padding characters a Base64 string ends with, compare its length before and after stripping them:
+\Needspace{2\baselineskip}
+\begin{pycode}
+pad = len(text) - len(text.rstrip("="))     # "QQ==" -> 4 - 2 = 2
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Bytes and integers: \code{int.from\_bytes} and \code{to\_bytes}}
+Day 5 introduced these. \code{int.from\_bytes(\allowbreak{}b\textquotedbl{}\textbackslash{}x01\textbackslash{}x00\textquotedbl{},\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} reads the bytes as one big number (256 here), and \code{n.to\_bytes(\allowbreak{}3,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} writes \code{n} as exactly 3 bytes. Base64 uses them to turn 3 bytes into one 24-bit number, cut it into four 6-bit pieces with shifts and masks (Day 5, section 3), and back.
+\Needspace{10\baselineskip}
+\subsection{\code{while\ True} with a \code{return} inside}
+\code{while\ True:\allowbreak{}} loops forever \emph{on purpose}. The way out is a \code{return} (or \code{break}) inside the body, taken when the work is done. A varint encoder can’t know in advance how many bytes it’ll produce, so it emits one byte per round and returns after the byte that has no “more follows” bit. For each \code{while\ True} you read, find every exit and make sure one is always reached.
+The opposite technique, \code{for\ count\ in\ range(\allowbreak{}10)\allowbreak{}:\allowbreak{}} followed by a \code{raise} after the loop, is a \textbf{safety limit}: a valid 64-bit varint is at most 10 bytes long, so if the loop runs out without finding the last byte, the data is invalid.
+\code{result\ \textbar{}\allowbreak{}=\allowbreak{}\ piece\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ shift} is the “or-equals” shortcut (like \code{+=\allowbreak{}}): it switches on, in \code{result}, the bits of \code{piece} moved to position \code{shift}.
+\Needspace{10\baselineskip}
+\subsection{\code{bool} is a kind of \code{int}}
+\code{True} and \code{False} are, for historical reasons, the integers 1 and 0 in disguise: \code{isinstance(\allowbreak{}True,\allowbreak{}\ int)\allowbreak{}} is \code{True}, and \code{True\ +\ True} is \code{2}. So an encoder that handles integers with \code{if\ isinstance(\allowbreak{}value,\allowbreak{}\ int)\allowbreak{}:\allowbreak{}} will happily encode \code{True} as \code{1}. When a spec says booleans aren’t allowed, the bool check must come \textbf{before} the int check:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if isinstance(value, bool):
+    raise TypeError("bool not supported")
+if isinstance(value, int):
+    ...
+\end{pycode}
+For error messages, \code{type(\allowbreak{}value)\allowbreak{}.\_\_name\_\_} gives the name of a value’s type as a string: \code{\textquotedbl{}float\textquotedbl{}} for \code{3.5}, \code{\textquotedbl{}set\textquotedbl{}} for \code{\{1\}}.
+\Needspace{10\baselineskip}
+\subsection{\code{isdigit(\allowbreak{})\allowbreak{}} is broader than you think}
+\code{isdigit(\allowbreak{})\allowbreak{}} accepts any Unicode digit, not only \code{0}–\code{9}: \code{\textquotedbl{}²\textquotedbl{}.isdigit(\allowbreak{})\allowbreak{}} and \code{\textquotedbl{}١٢\textquotedbl{}.isdigit(\allowbreak{})\allowbreak{}} (Arabic-Indic digits) are both \code{True}, and \code{int(\allowbreak{}\textquotedbl{}١٢\textquotedbl{})\allowbreak{}} even converts the latter to 12. A strict format that only allows ASCII digits must also check \code{isascii(\allowbreak{})\allowbreak{}}, which is \code{True} when every character is plain ASCII (code point below 128):
+\Needspace{2\baselineskip}
+\begin{pycode}
+if not digits.isdigit() or not digits.isascii():
+    raise ValueError(...)
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{One byte as bytes: \code{data[pos:\allowbreak{}pos\ +\ 1]}}
+Indexing a \code{bytes} object gives a number, so \code{data[pos]\ =\allowbreak{}=\allowbreak{}\ b\textquotedbl{}i\textquotedbl{}} is always \code{False} (\code{105} is not \code{b\textquotedbl{}i\textquotedbl{}}; Day 5, section 2). Decoders therefore compare a one-byte \textbf{slice}: \code{data[pos:\allowbreak{}pos\ +\ 1]\ =\allowbreak{}=\allowbreak{}\ b\textquotedbl{}i\textquotedbl{}}. The slice also has a nice side effect: at the end of the data it gives \code{b\textquotedbl{}\textquotedbl{}} instead of raising \code{IndexError}.
+To turn a few ASCII bytes into text that can be checked with string methods, decode them: \code{data[a:\allowbreak{}b].decode(\allowbreak{}\textquotedbl{}ascii\textquotedbl{},\allowbreak{}\ \textquotedbl{}replace\textquotedbl{})\allowbreak{}}. The \code{\textquotedbl{}replace\textquotedbl{}} puts \code{�} in place of any non-ASCII byte instead of raising, so the string check that follows is what reports the error.
+\Needspace{10\baselineskip}
+\subsection{“Try to decode, and fall back”}
+Bencode strings are raw bytes, but most of them are really text. The reference solution returns a \code{str} when the bytes are valid UTF-8, and leaves them as \code{bytes} otherwise:
+\Needspace{2\baselineskip}
+\begin{pycode}
+try:
+    return raw.decode("utf-8")
+except UnicodeDecodeError:
+    return raw
+\end{pycode}
+\code{try}/\code{except} (Day 4, section 7) is the natural way to ask “does this work?” when the only way to find out is to try it.
+\Needspace{10\baselineskip}
+\subsection{A function inside a function}
+Shape 1 above defines a small helper, \code{need(\allowbreak{}n)\allowbreak{}}, \emph{inside} \code{decode}. A nested function can \textbf{read} the variables of the function around it, such as \code{pos} and \code{data}, which is why \code{need} doesn’t take them as parameters. It can’t \textbf{assign} to them without one extra declaration (\code{nonlocal}), which you’ll meet on Day 10.
+\Needspace{10\baselineskip}
+\subsection{Set union: \code{UNRESERVED\ \textbar{}\allowbreak{}\ set(\allowbreak{}safe)\allowbreak{}}}
+For sets, \code{\textbar{}\allowbreak{}} means \textbf{union}: every element that’s in either set (Day 3, section 8). \code{set(\allowbreak{}\textquotedbl{}/\allowbreak{}:\allowbreak{}\textquotedbl{})\allowbreak{}} makes a set of the characters of a string, \code{\{\textquotedbl{}/\allowbreak{}\textquotedbl{},\allowbreak{}\ \textquotedbl{}:\allowbreak{}\textquotedbl{}\}}. So \code{UNRESERVED\ \textbar{}\allowbreak{}\ set(\allowbreak{}safe)\allowbreak{}} is “the always-safe characters, plus the ones the caller added”.
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Implement each function from the spec in its docstring. Work one file at a time; the tests are the final word.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.26}Y{0.95}Y{0.79}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{What} & \thd{Tests compare against} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}base64.\allowbreak{}py} & base64 encode/decode, strict validation & Python’s \code{base64} module \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}varint.\allowbreak{}py} & LEB128 varints + zigzag + streams & hand-computed vectors, round trips \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}percent.\allowbreak{}py} & percent-encode/decode with UTF-8 & \code{urllib.\allowbreak{}parse} \\
+\code{exercises/\allowbreak{}ex04\_\allowbreak{}bencode.\allowbreak{}py} & full bencode encoder + recursive decoder with errors & hand-computed vectors \\
+\hline
+\end{xltabular}
+\end{datatable}
+The last column tells you where the tests’ expected answers come from. For base64 and percent-encoding, they come from Python’s own standard library, so whenever you’re unsure what the right output is, you can ask the REPL (\code{base64.b64encode(\allowbreak{}...)\allowbreak{}}, \code{urllib.parse.quote(\allowbreak{}...)\allowbreak{}}). For varints and bencode, the answers were worked out by hand from the spec, so try computing one or two yourself as practice.
+\begin{tipbox}[Time-box each exercise]
+Each is \textasciitilde{}30–60 lines. \textbf{Time-box each one to 30–40 minutes.} If you exceed it, read the solution, then close it and re-implement from memory.
+\end{tipbox}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 8 -k ex01
+\end{shcode}
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can turn a spec sentence into a checklist item.
+\item My encoder/decoder passes the round-trip property: \code{decode(\allowbreak{}encode(\allowbreak{}x)\allowbreak{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ x}.
+\item I can parse a length-prefixed format without losing the cursor.
+\item All day-8 tests pass.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Turn every spec sentence into a checklist item; the tests win where the spec is vague.
+\item Cursor-based parsing: always advance, validate lengths, and return the new position.
+\item Round-trip tests catch encoder/decoder mismatches faster than reading the code.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

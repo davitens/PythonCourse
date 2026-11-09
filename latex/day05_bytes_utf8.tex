@@ -1,0 +1,659 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{05}
+\renewcommand{\courseDayInt}{5}
+\renewcommand{\courseShort}{BYTES \& UTF-8}
+\renewcommand{\courseTitle}{Bytes, Bits\\\& UTF-8}
+\renewcommand{\courseSubtitle}{Bits, masks, and UTF-8 encoding and decoding by hand.}
+\renewcommand{\courseTime}{3 hours}
+\renewcommand{\courseFocus}{Bytes and UTF-8}
+\renewcommand{\courseFolder}{day05\_bytes\_utf8}
+\renewcommand{\courseEyebrow}{DAY 05\enspace\textcolor{rule}{\textperiodcentered}\enspace BYTES \& UTF-8}
+\renewcommand{\courseTopics}{\topic{Bits}\topic{Masks}\topic{UTF-8}\topic{Error handling}}
+\renewcommand{\courseNext}{Turn the page to Day 6.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{The brief explicitly says \emph{“string manipulation including encoding and decoding UTF-8”}. By the end of today you can encode and decode UTF-8 \textbf{with pen and paper}, spot a wrong mask or shift in a decoder within seconds, and know every \code{str}/\code{bytes} API that matters.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+The brief explicitly says \emph{“string manipulation including encoding and decoding UTF-8”}. By the end of today you can encode and decode UTF-8 \textbf{with pen and paper}, spot a wrong mask or shift in a decoder within seconds, and know every \code{str}/\code{bytes} API that matters.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{The story of today}
+Computers don’t store letters. They store numbers, and more precisely they store \textbf{bits}: tiny switches that are either 0 or 1. Everything else (numbers, text, images) is built on top of bits by agreeing on a convention for what patterns of bits mean.
+For text, the convention has two layers:
+\begin{enumerate}
+\item \textbf{Unicode} gives every character in every writing system a number, called its \textbf{code point}. \code{A} is 65, \code{é} is 233, \code{€} is 8364, \code{\smiley{}} is 128512. There are over a million possible code points.
+\item An \textbf{encoding} says how to write those numbers as bytes. A \textbf{byte} is a group of 8 bits, which can hold a number from 0 to 255. Code points can be much bigger than 255, so we need rules for spreading one code point over several bytes. \textbf{UTF-8} is the encoding used almost everywhere: files, web pages, network messages, and the tokenizer you’ll debug on Day 9.
+\end{enumerate}
+Turning text into bytes is called \textbf{encoding}, and turning bytes back into text is \textbf{decoding}. Python does both for you with \code{.encode(\allowbreak{})\allowbreak{}} and \code{.decode(\allowbreak{})\allowbreak{}}, but the exam brief explicitly mentions UTF-8, so you may be handed a hand-written encoder or decoder with a wrong number in it. To find that number, you need to understand the bit-level rules. That’s what today is for. It’s the most technical day of the course, so take it slowly, and do the hand calculations on paper.
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{Bits, binary and hexadecimal: a gentle start}
+\Needspace{10\baselineskip}
+\subsection{Counting in binary}
+We normally write numbers in \textbf{base 10}: each digit position is worth ten times the one to its right (ones, tens, hundreds...). \textbf{Binary} is base 2: each position is worth \emph{twice} the one to its right, and the only digits are 0 and 1.
+The positions in one byte (8 bits) are worth, from left to right:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+position value:  128  64  32  16   8   4   2   1
+bits:              1   1   0   0   0   0   1   1
+\end{txtcode}
+To read a binary number, add up the values of the positions that hold a 1. Here: 128 + 64 + 2 + 1 = \textbf{195}. The leftmost bit, worth the most, is called the \textbf{most significant bit}. The rightmost one is the \textbf{least significant bit}.
+In Python, you write a binary number with the prefix \code{0b}, and \code{bin(\allowbreak{})\allowbreak{}} shows a number in binary:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> 0b11000011
+195
+>>> bin(195)
+'0b11000011'
+>>> f"{5:08b}"         # 5 as exactly 8 binary digits, padded with zeros
+'00000101'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Hexadecimal: a shorthand for binary}
+Long strings of 0s and 1s are hard to read, so programmers usually write bytes in \textbf{hexadecimal} (base 16). Hex digits go 0–9 and then \code{a}–\code{f} for 10–15. The big advantage: \textbf{one hex digit is exactly 4 bits}, so one byte is exactly two hex digits, and you can convert by splitting the byte in halves:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+1100 0011
+   C    3      ->  0xC3   (C = 12 = 8+4,  3 = 2+1)
+\end{txtcode}
+Python writes hex with the prefix \code{0x}:
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> 0xC3
+195
+>>> hex(195)
+'0xc3'
+>>> int("c3", 16)      # read a hex string
+195
+>>> int("11000011", 2) # read a binary string
+195
+\end{txtcode}
+It’s worth memorising the 16 hex digits as 4-bit patterns, at least these: \code{8\ =\allowbreak{}\ 1000}, \code{C\ =\allowbreak{}\ 1100}, \code{E\ =\allowbreak{}\ 1110}, \code{F\ =\allowbreak{}\ 1111}, \code{3\ =\allowbreak{}\ 0011}, \code{7\ =\allowbreak{}\ 0111}. They’re exactly the patterns UTF-8 uses.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{\code{str} and \code{bytes} in Python}
+Python keeps text and raw data strictly apart, with two different types:
+\begin{itemize}
+\item \textbf{\code{str}} is text: a sequence of characters (code points). That’s what you used on Day 2.
+\item \textbf{\code{bytes}} is raw data: a sequence of numbers, each between 0 and 255.
+\end{itemize}
+You move from one to the other explicitly: \code{.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{}} turns a \code{str} into \code{bytes}, and \code{.decode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{}} turns \code{bytes} back into a \code{str}.
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> s = "héllo"
+>>> b = s.encode("utf-8")
+>>> b
+b'h\xc3\xa9llo'
+>>> b.decode("utf-8")
+'héllo'
+\end{txtcode}
+Look at how Python displays the bytes: \code{b'h\textbackslash{}xc3\textbackslash{}xa9llo'}. The \code{b} in front marks it as bytes. Bytes that happen to be ordinary ASCII characters (like \code{h} and \code{l}) are shown as those characters, for readability. The others are shown as \code{\textbackslash{}x} followed by two hex digits. So \code{\textbackslash{}xc3} is the byte 0xC3 = 195. The character \code{é} became \emph{two} bytes, \code{C3} and \code{A9}, and section 4 will show you exactly why.
+\Needspace{10\baselineskip}
+\subsection{The differences that cause bugs}
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.47}Y{1.18}Y{1.35}@{}}
+\rowcolor{primary}
+\thd{} & \thd{\code{str}} & \thd{\code{bytes}} \\ \hline
+\endhead
+contains & Unicode \textbf{code points} (integers 0..0x10FFFF) & \textbf{integers 0..255} \\
+literal & \code{\textquotedbl{}héllo\textquotedbl{}} & \code{b\textquotedbl{}h\textbackslash{}xc3\textbackslash{}xa9llo\textquotedbl{}} (only ASCII allowed literally) \\
+\code{x[\allowbreak{}0]\allowbreak{}} & \code{'h'} (a str of length 1) & \code{104} (\textbf{an int!}) \\
+\code{x[\allowbreak{}0:\allowbreak{}1]\allowbreak{}} & \code{'h'} & \code{b'h'} (slicing gives bytes) \\
+convert & \code{s.\allowbreak{}encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{}} → bytes & \code{b.\allowbreak{}decode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{}} → str \\
+mutable version & — & \code{bytearray} \\
+\hline
+\end{xltabular}
+\end{datatable}
+The two rows that cause the most trouble:
+\textbf{Length.} \code{len} of a string counts \emph{characters}. \code{len} of bytes counts \emph{bytes}. As soon as there’s a non-ASCII character, they differ:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> len("héllo")
+5
+>>> len("héllo".encode("utf-8"))
+6
+\end{txtcode}
+So when a spec describes a binary format with “a length prefix giving the size in bytes”, the length must be \code{len(\allowbreak{}text.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{})\allowbreak{}}, not \code{len(\allowbreak{}text)\allowbreak{}}. Mixing them up works perfectly for English text and breaks on \code{é}, which is why tests always include a non-ASCII example.
+\textbf{Indexing.} Taking one position of a \code{bytes} object gives you an \textbf{int}, not a one-byte \code{bytes}. Slicing gives you \code{bytes}:
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> b = b"hello"
+>>> b[0]
+104
+>>> b[0:1]
+b'h'
+>>> b[0] == b"h"        # an int is never equal to a bytes object
+False
+>>> b[0] == ord("h")    # compare with the number instead
+True
+\end{txtcode}
+Code that writes \code{if\ data[i]\ =\allowbreak{}=\allowbreak{}\ b\textquotedbl{}a\textquotedbl{}:\allowbreak{}} is always false, a classic bug in parsers.
+\Needspace{10\baselineskip}
+\subsection{Making and inspecting bytes}
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> list(b"h\xc3\xa9")        # see the numbers inside
+[104, 195, 169]
+>>> bytes([104, 105])         # build bytes from a list of numbers
+b'hi'
+>>> b"ab" + bytes([0xC3, 0xA9])
+b'ab\xc3\xa9'
+>>> b"abc".hex()              # readable hex text
+'616263'
+>>> bytes.fromhex("c3 a9")    # and back
+b'\xc3\xa9'
+\end{txtcode}
+\code{bytes} can’t be changed once made (like \code{str}). When you build output one byte at a time, use a \textbf{\code{bytearray}}, the changeable version, and convert at the end:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> out = bytearray()
+>>> out.append(0xC3)          # add one byte (a number 0..255)
+>>> out.extend(b"\xa9")       # add several bytes
+>>> bytes(out)
+b'\xc3\xa9'
+\end{txtcode}
+And note that a string and its bytes are never equal, even when they “say” the same thing:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "é" == "é".encode()
+False
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{When decoding goes wrong}
+Not every sequence of bytes is valid UTF-8. The byte \code{0xFF}, for example, can never appear in UTF-8. Decoding invalid data raises a \code{UnicodeDecodeError} by default. The \code{errors=\allowbreak{}} argument changes that:
+\Needspace{7\baselineskip}
+\begin{utfcode}
+>>> b"\xff".decode("utf-8")
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+>>> b"\xffab".decode("utf-8", errors="replace")
+'�ab'
+>>> b"\xffab".decode("utf-8", errors="ignore")
+'ab'
+\end{utfcode}
+\begin{itemize}
+\item \code{errors=\allowbreak{}\textquotedbl{}strict\textquotedbl{}} (the default) raises.
+\item \code{errors=\allowbreak{}\textquotedbl{}replace\textquotedbl{}} puts the replacement character \code{�} (U+FFFD) where the bad bytes were, and carries on. Tokenizers use this so a stray bad byte never crashes them.
+\item \code{errors=\allowbreak{}\textquotedbl{}ignore\textquotedbl{}} silently drops bad bytes.
+\end{itemize}
+\begin{notebox}[Decode errors are ValueErrors]
+\code{UnicodeDecodeError} ⊂ \code{UnicodeError} ⊂ \code{ValueError} — so \code{assertRaises(\allowbreak{}ValueError)\allowbreak{}} catches it.
+\end{notebox}
+(The \code{⊂} sign means “is a kind of”. \code{UnicodeDecodeError} is a subclass of \code{ValueError}, as explained on Day 4, section 7.)
+\Needspace{10\baselineskip}
+\subsection{Never decode in pieces}
+\begin{trapbox}[Never decode per chunk]
+\textbf{Multi-byte chars split across chunks} — decoding each token/chunk separately breaks:
+\end{trapbox}
+\Needspace{2\baselineskip}
+\begin{utfcode}
+b = "é".encode()          # b'\xc3\xa9'
+b[:1].decode("utf-8", errors="replace") + b[1:].decode("utf-8", errors="replace")   # '��'  WRONG
+(b[:1] + b[1:]).decode()  # 'é'  — always concatenate bytes FIRST, then decode once
+\end{utfcode}
+This exact bug is classic in tokenizer \code{decode(\allowbreak{})\allowbreak{}} functions.
+Why does it break? The first byte, \code{\textbackslash{}xc3}, means “a character starts here, and it continues in the next byte”. On its own, that’s an incomplete character, so it becomes \code{�}. The second byte, \code{\textbackslash{}xa9}, means “I’m the continuation of a character”, but on its own it has nothing to continue, so it also becomes \code{�}. Only \emph{together} are they \code{é}. A tokenizer stores each token as some bytes, and a token boundary can fall in the middle of a character. That’s why the correct decode joins all the bytes first, then decodes once.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{Bit operations: working with individual bits}
+To build or take apart UTF-8 bytes, you need to work on individual bits inside a number. Python has operators for that. Each one is easiest to understand with the two numbers written in binary, one above the other.
+\Needspace{10\baselineskip}
+\subsection{AND (\code{\&\allowbreak{}}): keep only certain bits}
+\code{a\ \&\allowbreak{}\ b} produces a 1 only in the positions where \textbf{both} \code{a} and \code{b} have a 1.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+    1100 0011     (0xC3)
+  & 0011 1111     (0x3F)
+  -----------
+    0000 0011     (0x03)
+\end{txtcode}
+The most common use is with a \textbf{mask}: a number that has 1s exactly where you want to look. \code{\&\allowbreak{}\ mask} keeps those bits and sets all the others to 0. In the example, the mask \code{0x3F} keeps the low 6 bits and throws away the top 2.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 0xC3 & 0x3F
+3
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{OR (\code{\textbar{}\allowbreak{}}): switch certain bits on}
+\code{a\ \textbar{}\allowbreak{}\ b} produces a 1 where \textbf{either} number has a 1. You use it to \emph{set} bits, for example to stamp a fixed pattern onto the top of a byte:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+    1000 0000     (0x80)
+  | 0010 1001     (0x29)
+  -----------
+    1010 1001     (0xA9)
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{XOR (\code{\textasciicircum{}}) and NOT (\code{\textasciitilde{}})}
+\code{a\ \textasciicircum{}\ b} produces a 1 where the two numbers \emph{differ}, so it flips the bits that are set in the mask. \code{\textasciitilde{}a} flips every bit. Because Python’s integers have no fixed size, \code{\textasciitilde{}a} comes out as the negative number \code{-a\ -\ 1}, so only use it inside expressions like \code{x\ \&\allowbreak{}\ \textasciitilde{}mask}. You’ll rarely need either for UTF-8.
+\Needspace{10\baselineskip}
+\subsection{Shifts (\code{\textless{}\allowbreak{}\textless{}\allowbreak{}} and \code{\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}}): slide bits left or right}
+\code{a\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ n} moves every bit \code{n} places to the left, filling with zeros on the right. That’s the same as multiplying by 2ⁿ. \code{a\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ n} moves every bit \code{n} places to the right, and the bits that fall off the end are lost. That’s the same as dividing by 2ⁿ and rounding down.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> bin(0b11 << 6)       # 11 becomes 11000000
+'0b11000000'
+>>> bin(0b11101001 >> 6) # 11101001 becomes 11 (the low 6 bits fall off)
+'0b11'
+\end{txtcode}
+In UTF-8 code, shifts are how you move groups of bits into position. The decoder shifts the code point left by 6 to make room for 6 new bits. The encoder shifts right to bring the top bits down into a byte.
+\Needspace{10\baselineskip}
+\subsection{Common bit recipes}
+\Needspace{16\baselineskip}
+\begin{pycode}
+0b1010, 0xFF, 0o17          # binary, hex, octal literals
+bin(10), hex(255)           # '0b1010', '0xff'
+f"{10:08b}", f"{255:02x}"   # '00001010', 'ff'
+int("1010", 2), int("ff", 16)
+
+a & b     # AND  — keep bits:      x & 0x3F  keeps the low 6 bits
+a | b     # OR   — set bits:       0x80 | 0x2A  → 0b10101010
+a ^ b     # XOR  — flip bits
+~a        # NOT  (-a-1 in Python, beware)
+a << n    # shift left  = a * 2**n
+a >> n    # shift right = a // 2**n
+
+(x >> i) & 1            # bit i of x
+x | (1 << i)            # set bit i
+x & ~(1 << i)           # clear bit i
+(x >> start) & ((1 << length) - 1)   # extract `length` bits starting at bit `start`
+x & (x - 1) == 0        # power of two test (x > 0)
+\end{pycode}
+How to read the recipes at the bottom (bits are numbered from 0 at the right):
+\begin{itemize}
+\item \textbf{Read bit \code{i}:} shift it down to position 0, then keep only that bit with \code{\&\allowbreak{}\ 1}. The result is 0 or 1.
+\item \textbf{Set bit \code{i}:} \code{1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ i} is a number with a single 1 at position \code{i}. OR-ing it in switches that bit on.
+\item \textbf{Clear bit \code{i}:} \code{\textasciitilde{}(\allowbreak{}1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ i)\allowbreak{}} has 1s everywhere \emph{except} position \code{i}. AND-ing with it switches just that bit off.
+\item \textbf{Extract a field:} shift the field down to the bottom, then mask off \code{length} bits. \code{(\allowbreak{}1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ length)\allowbreak{}\ -\ 1} is a row of \code{length} ones. For example, \code{(\allowbreak{}1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6)\allowbreak{}\ -\ 1} is \code{0b111111} = \code{0x3F}.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{The masks of UTF-8}
+These masks are used again and again in UTF-8 code. Learn to read them as bit patterns, not as numbers:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.43}Y{0.52}Y{2.05}@{}}
+\rowcolor{primary}
+\thd{mask} & \thd{binary} & \thd{used for} \\ \hline
+\endhead
+\code{0x80} & \code{1000\ 0000} & high bit: ASCII if \code{b\ \&\allowbreak{}\ 0x80\ =\allowbreak{}=\allowbreak{}\ 0} \\
+\code{0xC0} & \code{1100\ 0000} & \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}=\allowbreak{}\ 0x80} → continuation byte \\
+\code{0xE0} & \code{1110\ 0000} & \code{b\ \&\allowbreak{}\ 0xE0\ =\allowbreak{}=\allowbreak{}\ 0xC0} → 2-byte lead \\
+\code{0xF0} & \code{1111\ 0000} & \code{b\ \&\allowbreak{}\ 0xF0\ =\allowbreak{}=\allowbreak{}\ 0xE0} → 3-byte lead \\
+\code{0xF8} & \code{1111\ 1000} & \code{b\ \&\allowbreak{}\ 0xF8\ =\allowbreak{}=\allowbreak{}\ 0xF0} → 4-byte lead \\
+\code{0x3F} & \code{0011\ 1111} & payload of a continuation byte (6 bits) \\
+\code{0x1F} & \code{0001\ 1111} & payload of a 2-byte lead (5 bits) \\
+\code{0x0F} & \code{0000\ 1111} & payload of a 3-byte lead (4 bits) \\
+\code{0x07} & \code{0000\ 0111} & payload of a 4-byte lead (3 bits) \\
+\hline
+\end{xltabular}
+\end{datatable}
+The first five rows are \textbf{tests}: “do the top bits of this byte have a certain pattern?” Take the test \code{b\ \&\allowbreak{}\ 0xE0\ =\allowbreak{}=\allowbreak{}\ 0xC0}. The mask \code{1110\ 0000} keeps only the top 3 bits of \code{b}, and comparing with \code{1100\ 0000} checks that those 3 bits are \code{110}. Section 4 explains why \code{110} matters.
+The last four rows are \textbf{extractions}: they keep the low bits that carry the actual data, and throw away the pattern bits at the top.
+\Needspace{10\baselineskip}
+\subsection{Operator precedence: which operation happens first}
+\textbf{Operator precedence} is the rule that decides the order of operations when there are no parentheses, the same way \code{2\ +\ 3\ *\ 4} means \code{2\ +\ (\allowbreak{}3\ *\ 4)\allowbreak{}} in school maths. For Python’s bit operators:
+\textbf{Operator precedence} (high → low): \code{+\ -} → \code{\textless{}\allowbreak{}\textless{}\allowbreak{}\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}} → \code{\&\allowbreak{}} → \code{\textasciicircum{}} → \code{\textbar{}\allowbreak{}} → comparisons (\code{=\allowbreak{}=\allowbreak{}\ \textless{}\allowbreak{}\ in\ ...}) → \code{not} → \code{and} → \code{or}. Consequences:
+\begin{itemize}
+\item \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}=\allowbreak{}\ 0x80} is \code{(\allowbreak{}b\ \&\allowbreak{}\ 0xC0)\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ 0x80} ✔ (unlike C, where it’s a bug).
+\item \code{x\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 6\ \&\allowbreak{}\ 0x3F} is \code{(\allowbreak{}x\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 6)\allowbreak{}\ \&\allowbreak{}\ 0x3F} ✔.
+\item \code{1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ n\ -\ 1} is \code{1\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ (\allowbreak{}n\ -\ 1)\allowbreak{}} — arithmetic binds tighter than shifts. Possibly not what you meant.
+\item \code{a\ +\ b\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 2} is \code{(\allowbreak{}a\ +\ b)\allowbreak{}\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 2}.
+\item \code{cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6\ \textbar{}\allowbreak{}\ b\ \&\allowbreak{}\ 0x3F} is \code{(\allowbreak{}cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6)\allowbreak{}\ \textbar{}\allowbreak{}\ (\allowbreak{}b\ \&\allowbreak{}\ 0x3F)\allowbreak{}} ✔ — but \code{cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6\ +\ b\ \&\allowbreak{}\ 0x3F} is garbage.
+\end{itemize}
+The good news is that the UTF-8 tests like \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}=\allowbreak{}\ 0x80} work as written in Python. The danger is mixing \code{+} or \code{-} with shifts. In the last example, \code{6\ +\ b} is computed first, so the code shifts by a huge amount and produces nonsense. If a decoded value looks absurdly large, put parentheses around every operation in the suspicious line and see whether the meaning changes.
+\begin{tipbox}[Parenthesise bit code]
+When in doubt, add parentheses.
+\end{tipbox}
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{How UTF-8 works}
+\Needspace{10\baselineskip}
+\subsection{The idea}
+UTF-8 has to solve two problems at once:
+\begin{itemize}
+\item Write any code point (up to about 1.1 million) using bytes that each hold only 0–255.
+\item Let a program reading the bytes always know \textbf{where each character starts and how long it is}, even if it starts reading in the middle.
+\end{itemize}
+Its solution is to use 1, 2, 3 or 4 bytes per character, and to reserve the \textbf{top bits of every byte as a label}:
+\begin{itemize}
+\item A byte starting with \code{0} is a complete character on its own. These are the 128 ASCII characters (English letters, digits, punctuation), so plain English text in UTF-8 is exactly one byte per character.
+\item A byte starting with \code{110}, \code{1110} or \code{11110} is the \textbf{lead byte} of a character that is 2, 3 or 4 bytes long. \emph{The number of 1s at the start tells you the total length.}
+\item A byte starting with \code{10} is a \textbf{continuation byte}: it carries more bits of the character that the lead byte started.
+\end{itemize}
+The remaining bits in each byte, after the label, are the \textbf{payload}: the actual bits of the code point.
+\Needspace{10\baselineskip}
+\subsection{The table}
+A code point \code{cp} is encoded with 1–4 bytes:
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.95}Y{0.57}Y{0.89}Y{0.89}Y{0.88}Y{0.86}Y{0.96}@{}}
+\rowcolor{primary}
+\thd{Code point range} & \thd{Bytes} & \thd{Byte 1} & \thd{Byte 2} & \thd{Byte 3} & \thd{Byte 4} & \thd{payload bits} \\ \hline
+\endhead
+U+0000 – U+007F & 1 & \code{0xxxxxxx} &  &  &  & 7 \\
+U+0080 – U+07FF & 2 & \code{110xxxxx} & \code{10xxxxxx} &  &  & 11 \\
+U+0800 – U+FFFF & 3 & \code{1110xxxx} & \code{10xxxxxx} & \code{10xxxxxx} &  & 16 \\
+U+10000 – U+10FFFF & 4 & \code{11110xxx} & \code{10xxxxxx} & \code{10xxxxxx} & \code{10xxxxxx} & 21 \\
+\hline
+\end{xltabular}
+\end{datatable}
+(\code{U+00E9} is the standard way of writing a code point: \code{U+} followed by the number in hex. So U+00E9 is 0xE9 = 233, which is \code{é}.)
+The \code{x}s are where the payload bits go. Count them to see where the ranges come from. A 2-byte character has 5 + 6 = 11 payload bits, enough for numbers up to 2¹¹ − 1 = 0x7FF. A 3-byte character has 4 + 6 + 6 = 16 bits, up to 0xFFFF. A 4-byte character has 3 + 6 + 6 + 6 = 21 bits, which comfortably covers the Unicode maximum of 0x10FFFF.
+\begin{keybox}[Most-significant bits first]
+The bits of \code{cp} are written \textbf{most-significant first}: the lead byte gets the top bits, each continuation byte the next 6 bits.
+\end{keybox}
+\Needspace{10\baselineskip}
+\subsection{Encoding by hand}
+Here’s the recipe for turning a code point into bytes:
+\begin{enumerate}
+\item Look up the range in the table. That tells you how many bytes you need, and how many payload bits.
+\item Write the code point in binary, padded on the left with zeros to exactly that many bits.
+\item Cut the bits into groups: the lead byte’s group first (5, 4 or 3 bits), then groups of 6.
+\item Put the label in front of each group: \code{110}/\code{1110}/\code{11110} on the first, \code{10} on each of the others.
+\end{enumerate}
+Let’s do it three times. Use pen and paper alongside.
+\textbf{‘é’ = U+00E9} → 0xE9 = \code{1110\ 1001}, in range 0x80–0x7FF → 2 bytes, 11 payload bits: \code{000\ 1110\ 1001} → split 5 \textbar{} 6 → \code{00011} \textbar{} \code{101001} → \code{110\ 00011} = 0xC3, \code{10\ 101001} = 0xA9 → \textbf{C3 A9} ✔ (\code{\textquotedbl{}é\textquotedbl{}.encode(\allowbreak{})\allowbreak{}} == \code{b'\textbackslash{}xc3\textbackslash{}xa9'})
+In words: 0xE9 is 233, which is more than 127 but less than 0x7FF, so it needs 2 bytes and 11 bits. Written as 11 bits, 233 is \code{00011101001}. The first 5 bits, \code{00011}, go after \code{110} to give \code{11000011} = C3. The last 6, \code{101001}, go after \code{10} to give \code{10101001} = A9.
+\textbf{‘€’ = U+20AC} → \code{0010\ 0000\ 1010\ 1100}, 3 bytes, split 4 \textbar{} 6 \textbar{} 6 → \code{0010} \textbar{} \code{000010} \textbar{} \code{101100} → \code{1110\ 0010} E2, \code{10\ 000010} 82, \code{10\ 101100} AC → \textbf{E2 82 AC}
+\textbf{‘\smiley{}’ = U+1F600} → 21 bits \code{0\ 0001\ 1111\ 0110\ 0000\ 0000} → split 3\textbar{}6\textbar{}6\textbar{}6 → \code{000} \code{011111} \code{011000} \code{000000} → F0 9F 98 80
+Check your work in the REPL:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "€".encode().hex(" ")
+'e2 82 ac'
+>>> "😀".encode().hex(" ")
+'f0 9f 98 80'
+\end{txtcode}
+Being able to produce these bytes by hand is what lets you judge a failing test: you can work out what the right answer is, and see which group of bits the broken code got wrong.
+\Needspace{10\baselineskip}
+\subsection{Encoding in code}
+\Needspace{14\baselineskip}
+\begin{pycode}
+def encode_cp(cp):
+    if cp < 0x80:
+        return bytes([cp])
+    if cp < 0x800:
+        return bytes([0xC0 | (cp >> 6),
+                      0x80 | (cp & 0x3F)])
+    if cp < 0x10000:
+        return bytes([0xE0 | (cp >> 12),
+                      0x80 | ((cp >> 6) & 0x3F),
+                      0x80 | (cp & 0x3F)])
+    return bytes([0xF0 | (cp >> 18),
+                  0x80 | ((cp >> 12) & 0x3F),
+                  0x80 | ((cp >> 6) & 0x3F),
+                  0x80 | (cp & 0x3F)])
+\end{pycode}
+This is exactly the pen-and-paper recipe, written with shifts and masks. Take the 3-byte branch, with ‘€’ = 0x20AC = \code{0010\ 000010\ 101100}:
+\begin{itemize}
+\item \textbf{Lead byte:} \code{cp\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 12} slides the number right by 12, dropping the two 6-bit groups and leaving the top 4 bits, \code{0010}. Then \code{0xE0\ \textbar{}\allowbreak{}} stamps the label \code{1110} on top: \code{1110\ 0010} = E2.
+\item \textbf{Middle byte:} \code{cp\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 6} drops the last group, leaving \code{0010\ 000010}. Then \code{\&\allowbreak{}\ 0x3F} keeps only the low 6 bits, \code{000010}, and \code{0x80\ \textbar{}\allowbreak{}} adds the label \code{10}: \code{1000\ 0010} = 82.
+\item \textbf{Last byte:} \code{cp\ \&\allowbreak{}\ 0x3F} keeps the lowest 6 bits, \code{101100}, and the label gives \code{1010\ 1100} = AC.
+\end{itemize}
+The \code{if} boundaries come straight from the table: \code{\textless{}\allowbreak{}\ 0x80} fits in 1 byte, \code{\textless{}\allowbreak{}\ 0x800} in 2, \code{\textless{}\allowbreak{}\ 0x10000} in 3. They use \emph{strictly less than}. Typical planted bugs are \code{\textless{}\allowbreak{}=\allowbreak{}} on a boundary, a wrong shift (\code{\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 8} instead of \code{\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 6}), or a missing \code{\&\allowbreak{}\ 0x3F}, which lets extra high bits leak into a continuation byte.
+\Needspace{10\baselineskip}
+\subsection{Decoding: reading bytes back into characters}
+Decoding runs the recipe backwards. It also has to \textbf{validate}, because the bytes it receives might be broken. Here are the steps for one character, starting at the current position:
+\begin{enumerate}
+\item Look at the lead byte \code{b0}:
+\begin{itemize}
+\item \code{b0\ \textless{}\allowbreak{}\ 0x80} → 1 byte, \code{cp\ =\allowbreak{}\ b0}
+\item \code{b0\ \&\allowbreak{}\ 0xE0\ =\allowbreak{}=\allowbreak{}\ 0xC0} → 2 bytes, \code{cp\ =\allowbreak{}\ b0\ \&\allowbreak{}\ 0x1F}
+\item \code{b0\ \&\allowbreak{}\ 0xF0\ =\allowbreak{}=\allowbreak{}\ 0xE0} → 3 bytes, \code{cp\ =\allowbreak{}\ b0\ \&\allowbreak{}\ 0x0F}
+\item \code{b0\ \&\allowbreak{}\ 0xF8\ =\allowbreak{}=\allowbreak{}\ 0xF0} → 4 bytes, \code{cp\ =\allowbreak{}\ b0\ \&\allowbreak{}\ 0x07}
+\item otherwise (a continuation byte \code{10xxxxxx} or \code{0xF8..0xFF}) → \textbf{invalid start byte}
+\end{itemize}
+\item For each of the following \code{n-1} bytes: check it exists (else \textbf{truncated}) and that \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}=\allowbreak{}\ 0x80} (else \textbf{invalid continuation}); then \code{cp\ =\allowbreak{}\ (\allowbreak{}cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6)\allowbreak{}\ \textbar{}\allowbreak{}\ (\allowbreak{}b\ \&\allowbreak{}\ 0x3F)\allowbreak{}}.
+\item Validate the result:
+\begin{itemize}
+\item \textbf{overlong}: the cp would fit in fewer bytes (e.g. \code{C0\ AF} decodes to \code{/\allowbreak{}} with 2 bytes — forbidden). Minimums: 2 bytes ≥ 0x80, 3 bytes ≥ 0x800, 4 bytes ≥ 0x10000. (So \code{C0} and \code{C1} can never appear.)
+\item \textbf{surrogates} U+D800–U+DFFF are forbidden in UTF-8.
+\item \textbf{\textgreater{} U+10FFFF} is forbidden (so \code{F5..FF} can never appear).
+\end{itemize}
+\end{enumerate}
+The heart of step 2 is the line \code{cp\ =\allowbreak{}\ (\allowbreak{}cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6)\allowbreak{}\ \textbar{}\allowbreak{}\ (\allowbreak{}b\ \&\allowbreak{}\ 0x3F)\allowbreak{}}. \code{cp\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6} slides the bits collected so far 6 places to the left, making room at the bottom. \code{b\ \&\allowbreak{}\ 0x3F} takes the 6 payload bits of the new byte. \code{\textbar{}\allowbreak{}} drops them into the space. After the last continuation byte, all the payload bits are in place.
+Each check in step 3 has a reason:
+\begin{itemize}
+\item \textbf{Truncated:} the lead byte promised, say, 3 bytes, but the data ends after 2, as when a file was cut off mid-character.
+\item \textbf{Invalid continuation:} a byte that should continue the character doesn’t start with \code{10}, so the character is broken.
+\item \textbf{Overlong:} you \emph{could} encode a small number with more bytes than necessary, by putting zeros in front of it. For example, \code{/\allowbreak{}} (0x2F) could be squeezed into the 2-byte pattern as \code{C0\ AF}. UTF-8 forbids this so every character has exactly \emph{one} valid encoding. (Otherwise, a security filter looking for the byte \code{/\allowbreak{}} could be fooled by \code{C0\ AF}.) The check is simple: a 2-byte character must be at least 0x80, a 3-byte one at least 0x800, and a 4-byte one at least 0x10000.
+\item \textbf{Surrogates:} the code points U+D800–U+DFFF are reserved for a different encoding (UTF-16) and are not real characters.
+\item \textbf{Too big:} Unicode stops at 0x10FFFF, but 21 bits could hold numbers up to 0x1FFFFF, so the decoder must reject anything above the limit.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Decoding in code}
+\Needspace{17\baselineskip}
+\begin{pycode}
+def decode(data):
+    out, i = [], 0
+    while i < len(data):
+        b0 = data[i]
+        if b0 < 0x80:       n, cp, lo = 1, b0, 0
+        elif b0 & 0xE0 == 0xC0: n, cp, lo = 2, b0 & 0x1F, 0x80
+        elif b0 & 0xF0 == 0xE0: n, cp, lo = 3, b0 & 0x0F, 0x800
+        elif b0 & 0xF8 == 0xF0: n, cp, lo = 4, b0 & 0x07, 0x10000
+        else: raise ValueError(f"invalid start byte at {i}")
+        if i + n > len(data): raise ValueError("truncated")
+        for k in range(1, n):
+            b = data[i + k]
+            if b & 0xC0 != 0x80: raise ValueError("invalid continuation")
+            cp = (cp << 6) | (b & 0x3F)
+        if cp < lo or 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF: raise ValueError("invalid")
+        out.append(chr(cp))
+        i += n
+    return "".join(out)
+\end{pycode}
+The variables: \code{i} is the position of the current lead byte, \code{n} is the length of this character, \code{cp} is the code point being assembled, and \code{lo} is the smallest code point allowed for this length (the overlong check). Let’s trace \code{decode(\allowbreak{}b\textquotedbl{}\textbackslash{}xc3\textbackslash{}xa9\textquotedbl{})\allowbreak{}}:
+\begin{enumerate}
+\item \code{i\ =\allowbreak{}\ 0}, \code{b0\ =\allowbreak{}\ 0xC3\ =\allowbreak{}\ 1100\ 0011}.
+\item Is it \code{\textless{}\allowbreak{}\ 0x80}? No. Is \code{b0\ \&\allowbreak{}\ 0xE0} (= \code{1100\ 0000}) equal to \code{0xC0}? Yes, so it’s a 2-byte character: \code{n\ =\allowbreak{}\ 2}, \code{cp\ =\allowbreak{}\ 0xC3\ \&\allowbreak{}\ 0x1F\ =\allowbreak{}\ 00011}, \code{lo\ =\allowbreak{}\ 0x80}.
+\item Truncation check: \code{i\ +\ n\ =\allowbreak{}\ 2}, and the data has 2 bytes, so that’s fine.
+\item \code{k\ =\allowbreak{}\ 1}: \code{b\ =\allowbreak{}\ 0xA9\ =\allowbreak{}\ 1010\ 1001}. \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}\ 1000\ 0000\ =\allowbreak{}\ 0x80}, so it’s a valid continuation. Then \code{cp\ =\allowbreak{}\ (\allowbreak{}00011\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 6)\allowbreak{}\ \textbar{}\allowbreak{}\ 101001\ =\allowbreak{}\ 00011\ 101001\ =\allowbreak{}\ 0xE9}.
+\item Final checks: \code{0xE9\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0x80} (not overlong), not a surrogate, not too big.
+\item \code{chr(\allowbreak{}0xE9)\allowbreak{}} is \code{'é'}. Then \code{i\ =\allowbreak{}\ 2} and the loop ends. Result: \code{'é'}.
+\end{enumerate}
+This kind of loop, where \code{i} is a position that moves forward by a different amount each time, is called \textbf{cursor-based parsing}. You’ll see it again on Day 8 and in the Day 9 tokenizer. When a decoder is broken, usually only \emph{certain} characters break: a wrong mask affects only 3-byte characters, a wrong \code{lo} only overlong cases. That’s why the tests use one example from each length class, and why the failing test’s input tells you which branch to look at.
+\begin{trapbox}[Check lead bytes in the right order]
+If you test \code{b0\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0xC0} before \code{b0\ \textgreater{}\allowbreak{}=\allowbreak{}\ 0xE0}, every 3- and 4-byte lead is misclassified as 2-byte. Using masks (\code{\&\allowbreak{}\ 0xE0\ =\allowbreak{}=\allowbreak{}\ 0xC0}) avoids this; using \code{\textgreater{}\allowbreak{}=\allowbreak{}} requires checking the largest first.
+\end{trapbox}
+To see why: a 3-byte lead like \code{0xE2} is also \code{\textgreater{}\allowbreak{}=\allowbreak{}\ 0xC0}. If the \code{\textgreater{}\allowbreak{}=\allowbreak{}\ 0xC0} test comes first, it matches, and the \code{\textgreater{}\allowbreak{}=\allowbreak{}\ 0xE0} branch is never reached.
+\Needspace{10\baselineskip}
+\subsection{Handy properties that follow from the design}
+\begin{itemize}
+\item ASCII is valid UTF-8 unchanged; any byte \textless{} 0x80 in UTF-8 is \textbf{always} an ASCII char.
+\item Number of code points in valid UTF-8 = number of bytes that are \textbf{not} continuation bytes (\code{sum(\allowbreak{}1\ for\ b\ in\ data\ if\ b\ \&\allowbreak{}\ 0xC0\ !=\allowbreak{}\ 0x80)\allowbreak{}}).
+\item You can find a character boundary from any position by moving back while \code{b\ \&\allowbreak{}\ 0xC0\ =\allowbreak{}=\allowbreak{}\ 0x80}. That’s how you truncate to N bytes without cutting a character in half.
+\item Sorting UTF-8 bytes gives the same order as sorting code points.
+\end{itemize}
+Why these hold:
+\begin{itemize}
+\item The first follows from the labels: a multi-byte character’s bytes all start with \code{1}, so a byte starting with \code{0} can only be a standalone ASCII character.
+\item The second holds because every character has exactly one lead byte, so counting the bytes that are \emph{not} continuation bytes counts the characters.
+\item The third: continuation bytes are recognisable on their own (they start with \code{10}), so from any position you can step backwards over them until you reach the lead byte of the current character. To cut some bytes down to at most N bytes without splitting a character, cut at N, then move the cut left while the byte at the cut is a continuation byte.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Other Unicode facts (good to know, rarely tested)}
+You don’t need to study these today. Just be aware of them.
+\begin{itemize}
+\item \code{len(\allowbreak{}\textquotedbl{}é\textquotedbl{})\allowbreak{}} can be 1 (U+00E9) or 2 (\code{\textquotedbl{}é\textquotedbl{}} = e + combining accent). \code{unicodedata.normalize(\allowbreak{}\textquotedbl{}NFC\textquotedbl{},\allowbreak{}\ s)\allowbreak{}} merges.
+\item Emoji with skin tones / families are several code points: \code{len(\allowbreak{}\textquotedbl{}\thumbsup{}\textquotedbl{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ 2}.
+\item \code{\textquotedbl{}ß\textquotedbl{}.upper(\allowbreak{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ \textquotedbl{}SS\textquotedbl{}} — case mapping can change length.
+\item UTF-8 BOM: \code{b\textquotedbl{}\textbackslash{}xef\textbackslash{}xbb\textbackslash{}xbf\textquotedbl{}}; \code{\textquotedbl{}utf-8-sig\textquotedbl{}} strips it.
+\item \code{int.to\_bytes(\allowbreak{}4,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}}, \code{int.from\_bytes(\allowbreak{}b,\allowbreak{}\ \textquotedbl{}big\textquotedbl{})\allowbreak{}} for fixed-width integers (used in binary formats).
+\end{itemize}
+\Needspace{2\baselineskip}
+\begin{pycode}
+  (258).to_bytes(2, "big")     # b'\x01\x02'
+  int.from_bytes(b"\x01\x02", "little")  # 513
+\end{pycode}
+The last item \emph{does} matter, for binary file formats like the one on Day 10. \code{n.to\_bytes(\allowbreak{}k,\allowbreak{}\ order)\allowbreak{}} writes an integer as exactly \code{k} bytes, and \code{int.from\_bytes(\allowbreak{}data,\allowbreak{}\ order)\allowbreak{}} reads it back. The \code{order} says which byte comes first:
+\begin{itemize}
+\item \textbf{big-endian} (\code{\textquotedbl{}big\textquotedbl{}}) puts the most significant byte first, the way we write numbers on paper. 258 = 0x0102 becomes \code{01\ 02}.
+\item \textbf{little-endian} (\code{\textquotedbl{}little\textquotedbl{}}) puts it last: \code{02\ 01}.
+\end{itemize}
+If a file is written with one order and read with the other, you get a wrong number and no error at all: \code{01\ 02} read as little-endian is 0x0201 = 513 instead of 258. That makes it a favourite planted bug.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{The toolbox: techniques the exercises rely on}
+\Needspace{10\baselineskip}
+\subsection{An exception that carries extra information}
+Day 4 (section 7) showed the simplest custom exception, \code{class\ MyError(\allowbreak{}Exception)\allowbreak{}:\allowbreak{}\ pass}. The strict decoder in ex03 needs more: its tests check not only \emph{that} it fails, but also \emph{why} and \emph{where}. So the exception object stores those two facts as attributes:
+\Needspace{7\baselineskip}
+\begin{pycode}
+class UTF8DecodeError(ValueError):
+    def __init__(self, reason, position):
+        super().__init__(f"{reason} at position {position}")
+        self.reason = reason
+        self.position = position
+\end{pycode}
+Line by line:
+\begin{itemize}
+\item \code{(\allowbreak{}ValueError)\allowbreak{}}: it’s a kind of \code{ValueError} (inheritance, Day 4 section 6), so code that catches \code{ValueError} also catches it.
+\item \code{\_\_init\_\_(\allowbreak{}self,\allowbreak{}\ reason,\allowbreak{}\ position)\allowbreak{}}: it’s created with two values, as in \code{raise\ UTF8DecodeError(\allowbreak{}\textquotedbl{}surrogate\textquotedbl{},\allowbreak{}\ 4)\allowbreak{}}.
+\item \code{super(\allowbreak{})\allowbreak{}.\_\_init\_\_(\allowbreak{}message)\allowbreak{}}: lets the original \code{ValueError.\_\_init\_\_} store the readable message, the text shown in a traceback. Skipping this line gives an exception with an empty message.
+\item \code{self.reason\ =\allowbreak{}\ ...}, \code{self.position\ =\allowbreak{}\ ...}: store the details as ordinary attributes, so anyone holding the exception object can read them.
+\end{itemize}
+How does a test get hold of the exception object? \code{assertRaises} used with \code{as} (Day 6 covers it in detail):
+\Needspace{2\baselineskip}
+\begin{pycode}
+with self.assertRaises(UTF8DecodeError) as ctx:
+    utf8_decode(b"\xc3")
+self.assertEqual(ctx.exception.reason, "truncated sequence")
+self.assertEqual(ctx.exception.position, 0)
+\end{pycode}
+\code{ctx.exception} is the exception that was raised, so its \code{.reason} and \code{.position} can be checked.
+\Needspace{10\baselineskip}
+\subsection{Setting several variables per branch}
+The decoder has to remember three facts that depend on the lead byte: how long the sequence is, the payload bits from the lead byte, and the smallest code point that length may encode. Each branch sets all three in one line using unpacking (Day 1, section 8):
+\Needspace{2\baselineskip}
+\begin{pycode}
+if b0 & 0xE0 == 0xC0:
+    length, cp, minimum = 2, b0 & 0x1F, 0x80
+elif b0 & 0xF0 == 0xE0:
+    length, cp, minimum = 3, b0 & 0x0F, 0x800
+\end{pycode}
+\code{b0\ \&\allowbreak{}\ 0xE0\ =\allowbreak{}=\allowbreak{}\ 0xC0} works as you’d hope: \code{\&\allowbreak{}} binds more tightly than \code{=\allowbreak{}=\allowbreak{}} (see the precedence table in section 3), so it means \code{(\allowbreak{}b0\ \&\allowbreak{}\ 0xE0)\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ 0xC0}, “do the top three bits read 110?”.
+\Needspace{10\baselineskip}
+\subsection{Looking ahead from a position: \code{data[i\ +\ k]}}
+A multi-byte character occupies \code{data[i]}, \code{data[i\ +\ 1]}, ..., \code{data[i\ +\ length\ -\ 1]}. The continuation bytes are \code{data[i\ +\ k]} for \code{k} in \code{range(\allowbreak{}1,\allowbreak{}\ length)\allowbreak{}}, which skips \code{k\ =\allowbreak{}\ 0}, the lead byte. Before looking ahead, check that the bytes exist: \code{if\ i\ +\ length\ \textgreater{}\allowbreak{}\ len(\allowbreak{}data)\allowbreak{}}, otherwise \code{data[i\ +\ k]} raises \code{IndexError} at the end of the data. After a character is done, jump over all of it with \code{i\ +=\allowbreak{}\ length}, not \code{i\ +=\allowbreak{}\ 1}.
+\Needspace{10\baselineskip}
+\subsection{Building bytes: \code{bytes(\allowbreak{}[...])\allowbreak{}} and \code{bytearray\ +=\allowbreak{}}}
+\code{bytes(\allowbreak{}[n1,\allowbreak{}\ n2,\allowbreak{}\ ...])\allowbreak{}} turns a list of numbers 0–255 into a bytes object (section 2). Each element of the list can be a whole expression, so a 2-byte UTF-8 character is built in one call:
+\Needspace{2\baselineskip}
+\begin{pycode}
+bytes([0xC0 | (cp >> 6), 0x80 | (cp & 0x3F)])
+\end{pycode}
+To join many such pieces, add them to a \code{bytearray} with \code{+=\allowbreak{}}, which appends \emph{all} the bytes of the right-hand side (like \code{extend}), and convert to \code{bytes} once at the end:
+\Needspace{2\baselineskip}
+\begin{pycode}
+out = bytearray()
+for ch in s:
+    out += encode_code_point(ord(ch))
+return bytes(out)
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Counting bytes and characters with a generator}
+Section 4’s “handy properties” say every character starts with exactly one byte that is \emph{not} a continuation byte (\code{10xxxxxx}). So “how many characters are in these bytes?” is the counting pattern from Day 1:
+\Needspace{2\baselineskip}
+\begin{pycode}
+sum(1 for b in data if b & 0xC0 != 0x80)
+\end{pycode}
+Looping over a \code{bytes} object gives \textbf{numbers} (section 2), which is why \code{b\ \&\allowbreak{}\ 0xC0} works directly.
+Likewise, “the positions where a character starts” is a comprehension with \code{enumerate}:
+\Needspace{2\baselineskip}
+\begin{pycode}
+[i for i, b in enumerate(data) if b & 0xC0 != 0x80]
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Stop as soon as the limit is passed}
+“The longest prefix of \code{s} that fits in \code{max\_bytes} bytes” is a running total (Day 1) that stops early. Walk through the characters with \code{enumerate}, add each character’s byte length, and the moment the total goes over the limit, the answer is everything \emph{before} the current character, \code{s[:\allowbreak{}i]}. If the loop finishes without going over, the whole string fits.
+\Needspace{10\baselineskip}
+\subsection{Taking a number apart bit by bit, and building one}
+Two loops appear in the bit exercises. The first \textbf{reads} the bits of \code{n} from the bottom, one per round: \code{n\ \&\allowbreak{}\ 1} is the lowest bit, and \code{n\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}=\allowbreak{}\ 1} (short for \code{n\ =\allowbreak{}\ n\ \textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\ 1}) throws it away so the next bit moves to the bottom. The loop \code{while\ n:\allowbreak{}} ends when no 1 bits are left. This is the binary version of Day 1’s \code{divmod(\allowbreak{}n,\allowbreak{}\ 10)\allowbreak{}} digit loop.
+The second \textbf{builds} a number bit by bit: \code{out\ =\allowbreak{}\ (\allowbreak{}out\ \textless{}\allowbreak{}\textless{}\allowbreak{}\ 1)\allowbreak{}\ \textbar{}\allowbreak{}\ bit} shifts everything built so far one place left, making room at the bottom, and puts the new bit there. Feeding in the bits 1, 1, 0 gives \code{0b1}, then \code{0b11}, then \code{0b110}. Reading bits from the bottom of one number and pushing them onto the bottom of another reverses their order.
+To print a number as a fixed number of binary digits without \code{format}, go through the bit positions from the top (\code{range(\allowbreak{}width\ -\ 1,\allowbreak{}\ -1,\allowbreak{}\ -1)\allowbreak{}}, Day 1 section 4) and turn each bit into \code{\textquotedbl{}0\textquotedbl{}} or \code{\textquotedbl{}1\textquotedbl{}} with \code{str(\allowbreak{}...)\allowbreak{}}.
+A neat test: \code{n\ \&\allowbreak{}\ (\allowbreak{}n\ -\ 1)\allowbreak{}} clears the lowest 1 bit of \code{n} (subtracting 1 turns \code{...1000} into \code{...0111}, and AND-ing the two wipes out that part). A power of two has exactly one 1 bit, so for it the result is 0.
+\Needspace{10\baselineskip}
+\subsection{A flag and \code{break}}
+The bonus \code{decode\_replace} checks continuation bytes in a loop, and stops at the first bad one. A boolean “flag” variable records whether the loop finished normally:
+\Needspace{8\baselineskip}
+\begin{pycode}
+ok = True
+for k in range(need):
+    if <this byte is bad>:
+        ok = False
+        break
+    ...
+# here, ok tells you whether every byte was fine
+\end{pycode}
+(Day 1’s \code{for\ ...\ else} could do the same, but the flag is easier to read.)
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 5} after every change; do \code{ex05} with a 20-minute timer.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}bits.\allowbreak{}py} & implement & bit helpers (get/set/clear, extract, popcount, padded binary) \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}utf8\_\allowbreak{}encode.\allowbreak{}py} & implement & encode code points and strings to UTF-8 \textbf{without} \code{.\allowbreak{}encode(\allowbreak{})\allowbreak{}} \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}utf8\_\allowbreak{}decode.\allowbreak{}py} & implement & strict decoder with all error checks \textbf{without} \code{.\allowbreak{}decode(\allowbreak{})\allowbreak{}}; bonus: \code{errors=\allowbreak{}\textquotedbl{}replace\textquotedbl{}} semantics \\
+\code{exercises/\allowbreak{}ex04\_\allowbreak{}utf8\_\allowbreak{}tools.\allowbreak{}py} & implement & truncate to N bytes, char boundaries, byte↔char offsets, hex dump \\
+\code{exercises/\allowbreak{}ex05\_\allowbreak{}fix\_\allowbreak{}me.\allowbreak{}py} & \textbf{debug} & a UTF-8 decoder with 6 planted bugs (exam-style!) \\
+\hline
+\end{xltabular}
+\end{datatable}
+The order is deliberate:
+\begin{itemize}
+\item \textbf{ex01} makes the bit operators automatic. “Popcount” means counting how many bits of a number are 1.
+\item \textbf{ex02} and \textbf{ex03} have you write the encoder and the decoder yourself, \emph{without} using Python’s built-in \code{.encode(\allowbreak{})\allowbreak{}}/\code{.decode(\allowbreak{})\allowbreak{}}. Writing them is the best way to understand every line, and the tests compare your results with Python’s. Try to write them \textbf{without scrolling back} to the code in section 4: work from the table and the step-by-step recipes, and look at the code only if you’re stuck.
+\item \textbf{ex04} applies the properties from the end of section 4. “Byte ↔ char offsets” means converting a position counted in bytes into a position counted in characters, and back.
+\item \textbf{ex05} is an exam simulation: someone else’s decoder, broken in six places.
+\end{itemize}
+Which tools each exercise needs (section numbers in brackets):
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.40}Y{1.60}@{}}
+\rowcolor{primary}
+\thd{Exercise} & \thd{Tools} \\ \hline
+\endhead
+ex01 bits & the recipes and masks (3), reading/building numbers bit by bit (6), \code{f\textquotedbl{}\{n:\allowbreak{}08b\}\textquotedbl{}} (1) \\
+ex02 encoder & the table and “encoding by hand” (4), \code{bytes(\allowbreak{}[\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{}]\allowbreak{})\allowbreak{}} and \code{bytearray\ +=\allowbreak{}} (6), \code{ord} (Day 2) \\
+ex03 decoder & lead-byte checks and the error order (4), the exception with \code{reason}/\code{position} (6), \code{data[\allowbreak{}i\ +\ k]\allowbreak{}} look-ahead (6), a flag and \code{break} for the bonus (6) \\
+ex04 tools & \code{.\allowbreak{}encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{}} (2), \code{enumerate} and stopping early (6), counting with \code{sum(\allowbreak{}1\ for\ .\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}} (6), \code{f\textquotedbl{}\{b:\allowbreak{}02x\}\textquotedbl{}} and \code{\textquotedbl{}\ \textquotedbl{}.\allowbreak{}join} \\
+ex05 fix-me & all of section 4 \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 5
+\end{shcode}
+Do \textbf{ex05 with a timer}: target 20 minutes. Use the worked examples above to compute expected values by hand, and print intermediate \code{cp} values in binary (\code{f\textquotedbl{}\{cp:\allowbreak{}021b\}\textquotedbl{}}).
+Printing \code{cp} in binary after every step of the loop shows exactly where bits go wrong. A wrong mask shows up as extra or missing bits at the top, and a wrong shift shows up as the right bits in the wrong place.
+The bonus \code{decode\_replace} in ex03 is hard (it must match Python’s “maximal subpart” rule exactly). Skip it if you’re short on time — it’s checked against Python’s own decoder on random bytes.
+(The “maximal subpart” rule decides how many \code{�} characters a broken sequence turns into. Roughly: the longest prefix that \emph{could} have started a valid character becomes a single \code{�}, and decoding resumes right after it. So \code{E2\ 82\ 41}, a 3-byte character cut short and followed by \code{A}, becomes \code{�A}: the \code{E2\ 82} part is one \code{�}.)
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can encode U+00E9, U+20AC, U+1F600 by hand.
+\item I know the 4 lead-byte patterns, the continuation pattern, and the payload masks.
+\item I know the 4 error classes: invalid start, invalid/missing continuation, overlong, surrogate/out-of-range.
+\item I know \code{bytes[i]} is an int and to decode the concatenated bytes, not per-chunk.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Decode the lead byte, validate each continuation, then reject overlong, surrogate, and out-of-range values.
+\item Never decode per chunk; concatenate the bytes first and decode once.
+\item Hand-compute \code{C3\ A9}, \code{E2\ 82\ AC}, and \code{F0\ 9F\ 98\ 80} until the masks are automatic.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

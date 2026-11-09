@@ -1,0 +1,634 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{03}
+\renewcommand{\courseDayInt}{3}
+\renewcommand{\courseShort}{DICTS \& SETS}
+\renewcommand{\courseTitle}{Dictionaries \& Sets}
+\renewcommand{\courseSubtitle}{Counting, grouping, sorting by value, and the traps hiding in mutable keys.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Maps and sets}
+\renewcommand{\courseFolder}{day03\_dicts\_sets}
+\renewcommand{\courseEyebrow}{DAY 03\enspace\textcolor{rule}{\textperiodcentered}\enspace DICTS \& SETS}
+\renewcommand{\courseTopics}{\topic{Counting}\topic{Grouping}\topic{Sorting}\topic{Sets}}
+\renewcommand{\courseNext}{Turn the page to Day 4.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Dictionaries are the workhorse of almost every algorithm you’ll debug (counts, indexes, vocabularies, caches, graphs). Master their API, iteration order, and the sorting/tie-break idioms.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Dictionaries are the workhorse of almost every algorithm you’ll debug (counts, indexes, vocabularies, caches, graphs). Master their API, iteration order, and the sorting/tie-break idioms.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why dictionaries are everywhere}
+A list answers questions like “what’s at position 3?”. Very often, though, the question you actually have is “what do I know about \emph{this thing}?”: How many times have I seen the word \code{\textquotedbl{}cat\textquotedbl{}}? Which id did I give to the token \code{\textquotedbl{}th\textquotedbl{}}? Who are the neighbours of the city \code{\textquotedbl{}Lyon\textquotedbl{}}? Have I already computed the answer for \code{n\ =\allowbreak{}\ 40}?
+A \textbf{dictionary} (\code{dict}) answers exactly that kind of question. It stores pairs: a \textbf{key} (the thing you look up) and a \textbf{value} (what you’ve stored about it), just as a real dictionary pairs a word with its definition. Looking up a key is extremely fast, and it takes the same time whether the dictionary holds ten entries or ten million.
+How can it be that fast? Internally, Python turns each key into a number called its \textbf{hash}, and uses that number to jump straight to the place where the value is stored, instead of searching. You don’t need the details. You need just one consequence of it, which comes up in section 5: keys must be values that never change.
+A \textbf{set} is a close relative: a collection of unique values with no associated data. It answers just one question, “is this in here?”, and answers it just as fast.
+Almost every algorithm in this course leans on a dict: word counts, the tokenizer’s vocabulary (Day 9), the key-value store (Day 10), the graphs in the drills, and the cache in drill 6. So today is worth doing carefully.
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{The basic operations}
+\Needspace{10\baselineskip}
+\subsection{Creating, reading and writing}
+A dict is written with curly braces, with \code{key:\allowbreak{}\ value} pairs separated by commas:
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> ages = {"ana": 31, "ben": 25}
+>>> ages["ana"]              # read the value stored under "ana"
+31
+>>> ages["cai"] = 40         # add a new key...
+>>> ages["ana"] = 32         # ...or overwrite an existing one: same syntax
+>>> ages
+{'ana': 32, 'ben': 25, 'cai': 40}
+>>> len(ages)                # number of keys
+3
+\end{txtcode}
+There is no separate “insert” and “update”: \code{d[key]\ =\allowbreak{}\ value} creates the key if it’s new and replaces the value if it already exists.
+\Needspace{10\baselineskip}
+\subsection{Reading a key that isn’t there}
+This is where most dictionary bugs live, so it’s worth slowing down. There are two ways to read a value, and they behave differently when the key is \textbf{missing}.
+Square brackets raise an error:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> ages["zoe"]
+KeyError: 'zoe'
+\end{txtcode}
+\code{.get(\allowbreak{})\allowbreak{}} returns \code{None} instead, or a default value that you choose:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> print(ages.get("zoe"))
+None
+>>> ages.get("zoe", 0)
+0
+>>> ages.get("ana", 0)       # the key exists, so the default is ignored
+32
+\end{txtcode}
+Which one is correct depends on what the spec says should happen. “Raises \code{KeyError} if the key is absent” means square brackets. “Returns 0 for unknown words” means \code{.get(\allowbreak{}word,\allowbreak{}\ 0)\allowbreak{}}. Tests check this behaviour exactly, so it’s worth reading that part of the spec carefully.
+\Needspace{10\baselineskip}
+\subsection{Checking whether a key exists: \code{in}}
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> "ana" in ages
+True
+>>> "zoe" in ages
+False
+>>> 31 in ages               # `in` looks at KEYS only, not values
+False
+>>> 32 in ages.values()      # to search the values, ask explicitly
+True
+\end{txtcode}
+\code{key\ in\ d} is instant. \code{value\ in\ d.values(\allowbreak{})\allowbreak{}} has to look at every value one after another, which is fine for small dicts but slow for big ones.
+\Needspace{10\baselineskip}
+\subsection{Removing keys}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> del ages["cai"]          # remove; KeyError if missing
+>>> ages.pop("ben")          # remove AND give back the value; KeyError if missing
+25
+>>> print(ages.pop("zoe", None))   # with a default: no error if missing
+None
+\end{txtcode}
+\code{d.pop(\allowbreak{}key,\allowbreak{}\ None)\allowbreak{}} is the usual way to say “remove this key if it’s there, and don’t complain otherwise”.
+\Needspace{10\baselineskip}
+\subsection{Merging two dicts}
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> a = {"x": 1, "y": 2}
+>>> b = {"y": 20, "z": 30}
+>>> {**a, **b}               # a NEW dict; when both have a key, the later one (b) wins
+{'x': 1, 'y': 20, 'z': 30}
+>>> a | b                    # the same thing, in newer Python
+{'x': 1, 'y': 20, 'z': 30}
+>>> a.update(b)              # changes a ITSELF (in place), returns None
+>>> a
+{'x': 1, 'y': 20, 'z': 30}
+\end{txtcode}
+The difference between “makes a new dict” and “changes the existing dict” matters, as we’ll see in section 7.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{Looping over a dict, and the order you get}
+\Needspace{10\baselineskip}
+\subsection{Three ways to loop}
+\Needspace{2\baselineskip}
+\begin{pycode}
+for k in d:              # the keys
+for v in d.values():     # the values
+for k, v in d.items():   # (key, value) pairs, unpacked into two variables
+\end{pycode}
+The third form is the one you’ll use most. \code{d.items(\allowbreak{})\allowbreak{}} produces pairs like \code{(\allowbreak{}'ana',\allowbreak{}\ 32)\allowbreak{}}, and \code{for\ k,\allowbreak{}\ v\ in\ ...} splits each pair into two variables.
+\Needspace{10\baselineskip}
+\subsection{Dicts remember insertion order}
+\begin{keybox}[Insertion order is guaranteed]
+Since Python 3.7, dicts remember insertion order. Re-assigning an existing key does \emph{not} move it; deleting and re-inserting does.
+\end{keybox}
+Let’s see what that means:
+\Needspace{12\baselineskip}
+\begin{txtcode}
+>>> d = {}
+>>> d["b"] = 1
+>>> d["a"] = 2
+>>> d["c"] = 3
+>>> list(d)                  # keys come out in the order they were added
+['b', 'a', 'c']
+>>> d["b"] = 100             # updating "b" keeps it in first place
+>>> list(d)
+['b', 'a', 'c']
+>>> del d["b"]; d["b"] = 100 # deleting and re-adding moves it to the end
+>>> list(d)
+['a', 'c', 'b']
+\end{txtcode}
+This matters because many specs depend on order: “return the words in the order they first appear”, or “on a tie, the one seen first wins”. Looping over a dict gives you that first-seen order for free. Deleting and re-inserting to move a key to the end is also exactly how a “least recently used” cache can be built (drill 6).
+To get the \textbf{oldest} key without a loop, use \code{next(\allowbreak{}iter(\allowbreak{}d)\allowbreak{})\allowbreak{}}. \code{iter(\allowbreak{}d)\allowbreak{}} prepares to walk through the keys, and \code{next} takes the first one.
+\Needspace{10\baselineskip}
+\subsection{Don’t add or remove keys while looping}
+\begin{trapbox}[Don't mutate while iterating]
+\textbf{Don’t add/remove keys while iterating} (\code{RuntimeError:\allowbreak{}\ dictionary\ changed\ size\ during\ iteration}). Iterate over a copy: \code{for\ k\ in\ list(\allowbreak{}d)\allowbreak{}:\allowbreak{}\ ...}.
+\end{trapbox}
+\Needspace{2\baselineskip}
+\begin{pycode}
+prices = {"a": 0, "b": 5, "c": 0}
+for k in prices:
+    if prices[k] == 0:
+        del prices[k]        # RuntimeError: dictionary changed size during iteration
+\end{pycode}
+The fix is to loop over a \textbf{snapshot} of the keys. \code{list(\allowbreak{}prices)\allowbreak{}} makes a separate list of the keys first, and deleting from the dict doesn’t affect that list:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for k in list(prices):
+    if prices[k] == 0:
+        del prices[k]        # fine
+\end{pycode}
+Changing the \emph{value} of an existing key while looping is fine. Only adding or removing keys is a problem.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{Counting and grouping}
+Two patterns cover a huge share of what dicts are used for in algorithm code. Learn to recognise both on sight.
+\Needspace{10\baselineskip}
+\subsection{Counting}
+Suppose you want to know how often each word appears in a list:
+\Needspace{7\baselineskip}
+\begin{pycode}
+words = ["the", "cat", "the", "hat", "the"]
+counts = {}
+for w in words:
+    counts[w] = counts.get(w, 0) + 1
+print(counts)        # {'the': 3, 'cat': 1, 'hat': 1}
+\end{pycode}
+The line \code{counts[w]\ =\allowbreak{}\ counts.get(\allowbreak{}w,\allowbreak{}\ 0)\allowbreak{}\ +\ 1} does three things: read the current count for \code{w} (or 0 if it’s the first time we’ve seen \code{w}), add 1, and store the result back. Run through it by hand: on the first \code{\textquotedbl{}the\textquotedbl{}} the count goes from nothing to 1, on the second from 1 to 2, on the third from 2 to 3.
+A common planted bug is \code{counts.get(\allowbreak{}w,\allowbreak{}\ 1)\allowbreak{}\ +\ 1}, which counts every first occurrence as 2.
+\Needspace{10\baselineskip}
+\subsection{Grouping}
+Now suppose you want to group words by their length: \code{\{3:\allowbreak{}\ [\textquotedbl{}the\textquotedbl{},\allowbreak{}\ \textquotedbl{}cat\textquotedbl{},\allowbreak{}\ ...],\allowbreak{}\ 5:\allowbreak{}\ [...]\}}.
+\Needspace{2\baselineskip}
+\begin{pycode}
+groups = {}
+for w in ["the", "cat", "horse", "zebra"]:
+    groups.setdefault(len(w), []).append(w)
+print(groups)        # {3: ['the', 'cat'], 5: ['horse', 'zebra']}
+\end{pycode}
+\code{setdefault(\allowbreak{}key,\allowbreak{}\ default)\allowbreak{}} means: “if \code{key} isn’t in the dict yet, store \code{default} under it; either way, give me back the value that’s stored there.” So the first time we meet a 3-letter word, it stores an empty list under 3 and hands it back, and \code{.append(\allowbreak{}w)\allowbreak{}} adds the word to \emph{that stored list}. The next 3-letter word gets the same list back and is added to it.
+\Needspace{10\baselineskip}
+\subsection{Ready-made helpers: \code{Counter} and \code{defaultdict}}
+The standard library module \code{collections} (allowed in the exam, since it’s built into Python) has shortcuts for both patterns.
+\code{Counter} does the counting loop for you:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> from collections import Counter
+>>> c = Counter("banana")
+>>> c
+Counter({'a': 3, 'n': 2, 'b': 1})
+>>> c["a"]
+3
+>>> c["z"]                   # a missing key counts as 0, no error
+0
+>>> c.most_common(2)         # the 2 most frequent, highest first
+[('a', 3), ('n', 2)]
+\end{txtcode}
+When two items have the same count, \code{most\_common} keeps them in the order they were first seen.
+\code{defaultdict} is a dict that automatically creates a value whenever you access a missing key. You tell it \emph{how} to create that value: \code{defaultdict(\allowbreak{}list)\allowbreak{}} creates empty lists and \code{defaultdict(\allowbreak{}int)\allowbreak{}} creates zeros (because calling \code{int(\allowbreak{})\allowbreak{}} with no arguments gives 0).
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> from collections import defaultdict
+>>> groups = defaultdict(list)
+>>> groups[3].append("cat")       # key 3 didn't exist: an empty list is created, then appended to
+>>> groups[3].append("dog")
+>>> dict(groups)
+{3: ['cat', 'dog']}
+>>> counts = defaultdict(int)
+>>> counts["x"] += 1              # missing key starts at 0, then +1
+>>> dict(counts)
+{'x': 1}
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Two traps}
+\begin{trapbox}[defaultdict inserts on read]
+\textbf{Just by reading it} (\code{dd[\textquotedbl{}missing\textquotedbl{}]} inserts \code{[]}). Use \code{in} or \code{.get} to check existence.
+\end{trapbox}
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> dd = defaultdict(list)
+>>> if dd["maybe"]:          # looks like a harmless check...
+...     pass
+...
+>>> dict(dd)                 # ...but it added the key
+{'maybe': []}
+\end{txtcode}
+If a test complains about unexpected extra keys, look for a \code{defaultdict} that’s being \emph{read} somewhere it should only be \emph{checked}.
+\begin{trapbox}[Shared list from fromkeys]
+ALL keys share the \textbf{same} list object. Use \code{\{k:\allowbreak{}\ []\ for\ k\ in\ keys\}}.
+\end{trapbox}
+\code{dict.fromkeys(\allowbreak{}keys,\allowbreak{}\ value)\allowbreak{}} creates a dict with every key mapped to \code{value}. With a number that’s fine. But with \code{[]}, Python creates \textbf{one} empty list and stores that same list under every key. It’s the same aliasing problem as the \code{[[0]\ *\ 3]\ *\ 3} grid from Day 1:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> index = dict.fromkeys(["a", "b"], [])
+>>> index["a"].append(1)
+>>> index
+{'a': [1], 'b': [1]}
+\end{txtcode}
+We appended to \code{\textquotedbl{}a\textquotedbl{}} and \code{\textquotedbl{}b\textquotedbl{}} changed too. The dict comprehension \code{\{k:\allowbreak{}\ []\ for\ k\ in\ keys\}} (section 6) evaluates \code{[]} again for each key, so every key gets its own list.
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{Sorting by value, and breaking ties}
+\Needspace{10\baselineskip}
+\subsection{The problem}
+Specs very often want a ranking: “the 3 most common words”, “the highest-scoring player”, “the most frequent pair”. And almost always they add a rule for \textbf{ties}: “if two words have the same count, the alphabetically smaller one comes first”. Getting the main order right but the tie rule wrong is a classic planted bug, because the code works on every input without ties.
+\Needspace{10\baselineskip}
+\subsection{Sorting the items of a dict}
+\code{sorted(\allowbreak{}counts.items(\allowbreak{})\allowbreak{},\allowbreak{}\ key=\allowbreak{}...)\allowbreak{}} sorts the \code{(\allowbreak{}key,\allowbreak{}\ value)\allowbreak{}} pairs. The \code{key=\allowbreak{}} argument is a function that receives one pair and returns \emph{what to sort by}. Here, \code{kv} is one pair, so \code{kv[0]} is the word and \code{kv[1]} is its count:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> counts = {"b": 3, "a": 3, "c": 5}
+>>> sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+[('c', 5), ('b', 3), ('a', 3)]
+\end{txtcode}
+\code{c} comes first with 5. Then \code{b} and \code{a} are tied with 3, and they come out in their original dict order (\code{b} before \code{a}). That’s because Python’s sort is \textbf{stable}: items that compare equal keep their relative order. So if a spec says nothing about ties, “first seen wins” is what you get.
+\Needspace{10\baselineskip}
+\subsection{Putting the tie-break into the key}
+What if the spec says “by count, highest first; ties alphabetically”? Use a \textbf{tuple} as the sort key. Python compares tuples one element at a time: first elements first, and only if those are equal, the second elements.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+[('c', 5), ('a', 3), ('b', 3)]
+\end{txtcode}
+The key for \code{(\allowbreak{}\textquotedbl{}a\textquotedbl{},\allowbreak{}\ 3)\allowbreak{}} is \code{(\allowbreak{}-3,\allowbreak{}\ \textquotedbl{}a\textquotedbl{})\allowbreak{}}, for \code{(\allowbreak{}\textquotedbl{}b\textquotedbl{},\allowbreak{}\ 3)\allowbreak{}} it’s \code{(\allowbreak{}-3,\allowbreak{}\ \textquotedbl{}b\textquotedbl{})\allowbreak{}}, and for \code{(\allowbreak{}\textquotedbl{}c\textquotedbl{},\allowbreak{}\ 5)\allowbreak{}} it’s \code{(\allowbreak{}-5,\allowbreak{}\ \textquotedbl{}c\textquotedbl{})\allowbreak{}}. Sorting those keys in normal ascending order:
+\begin{itemize}
+\item \code{-5} is smaller than \code{-3}, so \code{c} comes first. Negating the count is what turns “highest count first” into ordinary ascending order.
+\item \code{a} and \code{b} both have \code{-3}, so the second element decides: \code{\textquotedbl{}a\textquotedbl{}\ \textless{}\allowbreak{}\ \textquotedbl{}b\textquotedbl{}}.
+\end{itemize}
+\begin{keybox}[Tie-break in the key tuple]
+When a spec says “ties are broken by X”, write the tie-break into the key tuple. \code{reverse=\allowbreak{}True} reverses \textbf{all} components of the key — so for “desc by count, asc by name” use \code{-count} rather than \code{reverse=\allowbreak{}True}.
+\end{keybox}
+In other words, \code{key=\allowbreak{}lambda\ kv:\allowbreak{}\ (\allowbreak{}kv[1],\allowbreak{}\ kv[0])\allowbreak{},\allowbreak{}\ reverse=\allowbreak{}True} would give highest count first \emph{and} reverse-alphabetical names on ties, which is not what the spec asked for.
+\Needspace{10\baselineskip}
+\subsection{\code{max} and \code{min} with a key}
+To get just the single best item, \code{max} and \code{min} accept the same \code{key=\allowbreak{}} argument:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> max(counts, key=counts.get)
+'c'
+\end{txtcode}
+This loops over the keys of \code{counts} and compares them using \code{counts.get(\allowbreak{}key)\allowbreak{}}, i.e. their counts. It returns the \emph{key} with the largest count, not the count itself.
+When there’s a tie, \code{max} and \code{min} return the \textbf{first} one they meet:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> max({"b": 3, "a": 3}, key={"b": 3, "a": 3}.get)
+'b'
+\end{txtcode}
+If the spec wants something else on ties, the key must say so. For example, “the pair with the highest count, and on ties the smallest pair” can be written as \code{min(\allowbreak{}pairs,\allowbreak{}\ key=\allowbreak{}lambda\ p:\allowbreak{}\ (\allowbreak{}-counts[p],\allowbreak{}\ p)\allowbreak{})\allowbreak{}}: the smallest \code{(\allowbreak{}-count,\allowbreak{}\ pair)\allowbreak{}} is the highest count, and among equal counts the smallest pair. The BPE tokenizer on Day 9 chooses which pair to merge with exactly this kind of line.
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{What can be a key?}
+Remember that a dict finds keys using their hash, a number computed from the key’s contents. If a key could change after being stored, its hash would change too, and the dict would look for it in the wrong place. So Python only allows keys that can’t change. Such values are called \textbf{hashable}.
+\code{str}, \code{int}, \code{float}, \code{bool}, \code{None}, \code{bytes}, \code{tuple} (of hashables), \code{frozenset} → OK. \code{list}, \code{dict}, \code{set} → \code{TypeError:\allowbreak{}\ unhashable\ type}. Use \code{tuple(\allowbreak{}lst)\allowbreak{}} as a key: \code{pair\_counts[(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}]\ +=\allowbreak{}\ 1} — this is exactly how BPE tokenizers count pairs.
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> d = {}
+>>> d[[1, 2]] = "x"
+TypeError: unhashable type: 'list'
+>>> d[(1, 2)] = "x"          # a tuple is fine
+>>> d
+{(1, 2): 'x'}
+\end{txtcode}
+Tuples as keys are extremely common. A grid cell is \code{(\allowbreak{}row,\allowbreak{}\ col)\allowbreak{}}, a graph edge is \code{(\allowbreak{}from,\allowbreak{}\ to)\allowbreak{}}, two neighbouring tokens are \code{(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}}, and a dynamic-programming state is \code{(\allowbreak{}i,\allowbreak{}\ remaining\_capacity)\allowbreak{}}.
+One curiosity: keys that are equal count as the \emph{same} key, and Python considers \code{1}, \code{1.0} and \code{True} equal.
+Note \code{1\ =\allowbreak{}=\allowbreak{}\ 1.0\ =\allowbreak{}=\allowbreak{}\ True} so \code{\{1:\allowbreak{}\ \textquotedbl{}a\textquotedbl{},\allowbreak{}\ True:\allowbreak{}\ \textquotedbl{}b\textquotedbl{}\}} → \code{\{1:\allowbreak{}\ 'b'\}}.
+The second entry replaced the value of the first, because Python thinks they’re the same key. You’ll rarely hit this, but it explains odd results when booleans and numbers are mixed as keys.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{Building dicts in one line: comprehensions}
+Just like list comprehensions (Day 1), a \textbf{dict comprehension} builds a dict from a loop. You write \code{key:\allowbreak{}\ value} followed by the loop:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> {x: x * x for x in range(5)}
+{0: 0, 1: 1, 2: 4, 3: 9, 4: 16}
+>>> {w: len(w) for w in ["hi", "there"]}
+{'hi': 2, 'there': 5}
+\end{txtcode}
+A common use is \textbf{inverting} a dict, i.e. swapping keys and values. A tokenizer maps text to ids for encoding, and needs the reverse map from ids to text for decoding:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> token_to_id = {"a": 0, "b": 1}
+>>> {v: k for k, v in token_to_id.items()}
+{0: 'a', 1: 'b'}
+\end{txtcode}
+This only works cleanly when every value is different. If two keys share a value, they both want to become the same new key, and the later one silently overwrites the earlier one:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> {v: k for k, v in {"x": 1, "y": 1}.items()}
+{1: 'y'}
+\end{txtcode}
+\code{\textquotedbl{}x\textquotedbl{}} has disappeared. When values can repeat, invert into lists instead: \code{inv.setdefault(\allowbreak{}v,\allowbreak{}\ [])\allowbreak{}.append(\allowbreak{}k)\allowbreak{}}.
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{Dicts inside dicts, and copying}
+\Needspace{10\baselineskip}
+\subsection{Reading nested data}
+Real data is often nested: dicts whose values are other dicts or lists.
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> config = {"db": {"host": "x", "port": 5432}}
+>>> config["db"]["port"]
+5432
+>>> config.get("cache", {}).get("size")    # safe even though "cache" doesn't exist
+>>>
+\end{txtcode}
+The second line uses \code{.get(\allowbreak{}...,\allowbreak{}\ \{\})\allowbreak{}}: if \code{\textquotedbl{}cache\textquotedbl{}} is missing, we get an empty dict, and calling \code{.get(\allowbreak{}\textquotedbl{}size\textquotedbl{})\allowbreak{}} on an empty dict gives \code{None} instead of crashing.
+\Needspace{10\baselineskip}
+\subsection{Shallow and deep copies}
+Copying nested data is where bugs hide. There are two kinds of copy:
+\begin{itemize}
+\item A \textbf{shallow copy} (\code{dict(\allowbreak{}d)\allowbreak{}}, \code{d.copy(\allowbreak{})\allowbreak{}}) creates a new outer dict, but its values are the \emph{same objects} as in the original. The inner dict is shared.
+\item A \textbf{deep copy} (\code{copy.deepcopy(\allowbreak{}d)\allowbreak{}}) copies everything, all the way down. Nothing is shared.
+\end{itemize}
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> import copy
+>>> shallow = dict(config)
+>>> shallow["db"]["port"] = 1
+>>> config["db"]["port"]          # the original changed too!
+1
+>>> config["db"]["port"] = 5432
+>>> deep = copy.deepcopy(config)
+>>> deep["db"]["port"] = 1
+>>> config["db"]["port"]          # untouched
+5432
+\end{txtcode}
+A shallow copy is enough when you’ll only add, remove or replace top-level keys. If you’ll modify anything \emph{inside} the values, you need a deep copy.
+\Needspace{10\baselineskip}
+\subsection{The worst version: no copy at all}
+The most common bug in this area isn’t a shallow copy, it’s no copy at all:
+\begin{trapbox}[Aliasing instead of copying]
+A function that “returns a new dict” but does \code{result\ =\allowbreak{}\ a} then mutates \code{result} mutates \code{a} — a classic bug.
+\end{trapbox}
+\Needspace{7\baselineskip}
+\begin{pycode}
+def with_defaults(settings, defaults):
+    """Return a NEW dict: defaults, overridden by settings. Don't modify either argument."""
+    result = defaults                  # BUG: result and defaults are the same dict
+    for key, value in settings.items():
+        result[key] = value
+    return result
+\end{pycode}
+As on Day 1, \code{result\ =\allowbreak{}\ defaults} doesn’t copy anything. It attaches a second name to the same dict, so every change to \code{result} also changes the caller’s \code{defaults}. The first call looks fine. But the next call starts from a \code{defaults} dict that still contains the previous caller’s settings, so values leak from one call into the next. The fix is \code{result\ =\allowbreak{}\ dict(\allowbreak{}defaults)\allowbreak{}}. A shallow copy is enough here as long as the values are simple things like numbers and strings, which can’t be modified in place.
+\Needspace{10\baselineskip}
+\setcounter{section}{7}
+\section{Sets}
+\Needspace{10\baselineskip}
+\subsection{What a set is for}
+A \textbf{set} holds unique values, in no particular order. You use it when the only question is membership: “have I already visited this node?”, “is this word in the list of stop words?”, “which items appear in both lists?”.
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> s = {1, 2, 3}
+>>> s.add(4)                 # add a value (does nothing if it's already there)
+>>> s.add(2)
+>>> s
+{1, 2, 3, 4}
+>>> 3 in s                   # instant membership test
+True
+>>> set([1, 1, 2, 2, 3])     # converting to a set removes duplicates
+{1, 2, 3}
+\end{txtcode}
+An empty set must be written \code{set(\allowbreak{})\allowbreak{}}. Writing \code{\{\}} gives you an empty \emph{dict}, for historical reasons.
+Removing values:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> s.discard(10)            # remove if present; silently does nothing otherwise
+>>> s.remove(10)             # remove, but raise an error if it's not there
+KeyError: 10
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Why sets are faster than lists for membership}
+\code{x\ in\ some\_list} checks the items one by one until it finds a match. For a list of 100,000 items, that’s up to 100,000 comparisons. \code{x\ in\ some\_set} uses hashing, like a dict, and is instant regardless of size. Inside a loop over many items (for example a graph search checking “have I seen this node?”), the difference is between a program that finishes instantly and one that times out.
+\Needspace{10\baselineskip}
+\subsection{Combining sets}
+Sets support the operations you may remember from maths:
+\Needspace{12\baselineskip}
+\begin{txtcode}
+>>> a = {1, 2, 3}
+>>> b = {2, 3, 4}
+>>> a | b        # union: in either
+{1, 2, 3, 4}
+>>> a & b        # intersection: in both
+{2, 3}
+>>> a - b        # difference: in a but not in b
+{1}
+>>> a ^ b        # symmetric difference: in exactly one of them
+{1, 4}
+>>> {2, 3} <= a  # subset: is every element of the left also in a?
+True
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Sets have no order}
+Sets have \textbf{no order} — never rely on iteration order of a set in output; sort it.
+The order in which a set gives you its elements is an internal detail. It can look sorted for small numbers and then change completely for strings, or between runs of the program. So a function that returns \code{list(\allowbreak{}some\_set)\allowbreak{}} might pass a test today and fail tomorrow. If the output must be in a particular order, sort it (\code{sorted(\allowbreak{}some\_set)\allowbreak{}}), or keep a separate list that records the order in which things were first seen.
+\Needspace{10\baselineskip}
+\setcounter{section}{8}
+\section{The toolbox: techniques the exercises rely on}
+\Needspace{10\baselineskip}
+\subsection{Chaining calls: \code{d.setdefault(\allowbreak{}k,\allowbreak{}\ [])\allowbreak{}.append(\allowbreak{}x)\allowbreak{}}}
+You met \code{setdefault} in section 3. It’s almost always used in a chain, which is worth reading slowly:
+\Needspace{2\baselineskip}
+\begin{pycode}
+groups.setdefault(key, []).append(word)
+\end{pycode}
+Python evaluates this left to right:
+\begin{enumerate}
+\item \code{groups.setdefault(\allowbreak{}key,\allowbreak{}\ [])\allowbreak{}} makes sure \code{groups[key]} exists (creating an empty list if it didn’t), and \textbf{returns the list that’s stored there}.
+\item \code{.append(\allowbreak{}word)\allowbreak{}} is then called on \emph{that returned list}, which is the very list inside the dict.
+\end{enumerate}
+So the word lands in the dict, without ever writing \code{groups[key]} twice. It works with any container that has a method for adding: with a set it becomes \code{adj.setdefault(\allowbreak{}a,\allowbreak{}\ set(\allowbreak{})\allowbreak{})\allowbreak{}.add(\allowbreak{}b)\allowbreak{}}.
+The equivalent long version, if you find it clearer:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if key not in groups:
+    groups[key] = []
+groups[key].append(word)
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Looping over pairs: \code{for\ a,\allowbreak{}\ b\ in\ edges}}
+A list of pairs, like the edges of a graph \code{[(\allowbreak{}\textquotedbl{}a\textquotedbl{},\allowbreak{}\ \textquotedbl{}b\textquotedbl{})\allowbreak{},\allowbreak{}\ (\allowbreak{}\textquotedbl{}b\textquotedbl{},\allowbreak{}\ \textquotedbl{}c\textquotedbl{})\allowbreak{}]}, can be unpacked directly in the \code{for} line (Day 1, section 8). Each round, the pair is split into \code{a} and \code{b}. \code{for\ k,\allowbreak{}\ v\ in\ d.items(\allowbreak{})\allowbreak{}} (section 2) is the same idea.
+\Needspace{10\baselineskip}
+\subsection{Returning a pair, or \code{None}}
+A function can return a tuple: \code{return\ (\allowbreak{}i,\allowbreak{}\ j)\allowbreak{}}. The parentheses are optional (\code{return\ i,\allowbreak{}\ j} means the same), but they make it obvious that one value, a pair, comes back. When there’s no answer, the convention is to return \code{None}, and the caller checks with \code{if\ result\ is\ None:\allowbreak{}}.
+\Needspace{10\baselineskip}
+\subsection{What kind of value is this? \code{isinstance}}
+With nested data, a value might be a plain number or string, or it might be another dict you have to go into. To ask which, use \code{isinstance(\allowbreak{}value,\allowbreak{}\ type)\allowbreak{}}:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> isinstance({"a": 1}, dict)
+True
+>>> isinstance(5, dict)
+False
+>>> isinstance(5, (int, float))        # a tuple of types means "any of these"
+True
+\end{txtcode}
+Typical use: \code{if\ isinstance(\allowbreak{}v,\allowbreak{}\ dict)\allowbreak{}:\allowbreak{}\ ...\ go\ one\ level\ deeper\ ...\ else:\allowbreak{}\ ...\ it's\ a\ leaf\ value\ ...}.
+You’ll also see the combination “is it a dict, \textbf{and} does it have this key?”:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if not isinstance(cur, dict) or part not in cur:
+    return default
+\end{pycode}
+The order matters. \code{or} stops as soon as it finds something true, so if \code{cur} isn’t a dict, \code{part\ not\ in\ cur} is never evaluated. That’s good, because \code{part\ not\ in\ 5} would raise a \code{TypeError}.
+\Needspace{10\baselineskip}
+\subsection{Walking down a dotted path}
+A path like \code{\textquotedbl{}db.primary.port\textquotedbl{}} is turned into a list of keys with \code{path.split(\allowbreak{}\textquotedbl{}.\textquotedbl{})\allowbreak{}}, giving \code{[\textquotedbl{}db\textquotedbl{},\allowbreak{}\ \textquotedbl{}primary\textquotedbl{},\allowbreak{}\ \textquotedbl{}port\textquotedbl{}]}. Then a loop goes one level deeper per key, keeping a variable that points at “where we are now”:
+\Needspace{2\baselineskip}
+\begin{pycode}
+cur = config                     # start at the top
+for part in "db.primary.port".split("."):
+    cur = cur[part]              # step one level down
+# cur is now config["db"]["primary"]["port"]
+\end{pycode}
+To \textbf{set} a value at a path, you have to stop one level early, because the last key is the one you assign to, not the one you step into. That’s what \code{parts[:\allowbreak{}-1]} (all keys except the last) and \code{parts[-1]} (the last key) are for:
+\Needspace{7\baselineskip}
+\begin{pycode}
+parts = path.split(".")
+cur = d
+for part in parts[:-1]:          # walk down to the dict that will hold the value
+    ...                          # (creating missing levels with cur[part] = {} on the way)
+    cur = cur[part]
+cur[parts[-1]] = value           # assign in that dict
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Recursion: a function that calls itself}
+Some data is nested to an unknown depth: a dict may contain a dict that contains a dict... A loop can’t easily handle “as many levels as there happen to be”, but a function that \textbf{calls itself} on each nested part can. That’s \textbf{recursion}.
+The trick to writing (and reading) a recursive function is to stop thinking about the whole thing, and only answer two questions:
+\begin{enumerate}
+\item \textbf{The simple case.} What do I do with a value that isn’t nested? (Usually: just use it.)
+\item \textbf{The nested case.} If I \emph{assume} the function already works correctly on the smaller, inner dict, how do I use its result?
+\end{enumerate}
+Flattening is a good example. We want \code{\{\textquotedbl{}a\textquotedbl{}:\allowbreak{}\ 1,\allowbreak{}\ \textquotedbl{}b\textquotedbl{}:\allowbreak{}\ \{\textquotedbl{}c\textquotedbl{}:\allowbreak{}\ 2,\allowbreak{}\ \textquotedbl{}d\textquotedbl{}:\allowbreak{}\ \{\textquotedbl{}e\textquotedbl{}:\allowbreak{}\ 3\}\}\}} to become \code{\{\textquotedbl{}a\textquotedbl{}:\allowbreak{}\ 1,\allowbreak{}\ \textquotedbl{}b.c\textquotedbl{}:\allowbreak{}\ 2,\allowbreak{}\ \textquotedbl{}b.d.e\textquotedbl{}:\allowbreak{}\ 3\}}.
+\Needspace{10\baselineskip}
+\begin{pycode}
+def flatten_dict(d, prefix=""):
+    out = {}
+    for k, v in d.items():
+        key = f"{prefix}.{k}" if prefix else k     # "b" at the top, "b.c" one level down
+        if isinstance(v, dict):
+            out.update(flatten_dict(v, key))      # nested: flatten the inner dict, prefixed with our key
+        else:
+            out[key] = v                          # simple: store the value under the full key
+    return out
+\end{pycode}
+Follow the calls on that example:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+flatten_dict({"a": 1, "b": {...}}, "")
+  "a" -> 1 is simple: out["a"] = 1
+  "b" -> a dict: call flatten_dict({"c": 2, "d": {...}}, "b")
+          "c" -> simple: out["b.c"] = 2
+          "d" -> a dict: call flatten_dict({"e": 3}, "b.d")
+                  "e" -> simple: out["b.d.e"] = 3
+                  returns {"b.d.e": 3}
+          returns {"b.c": 2, "b.d.e": 3}
+  out.update(...) adds those keys
+  returns {"a": 1, "b.c": 2, "b.d.e": 3}
+\end{txtcode}
+Each call handles one level and hands the deeper levels to another call of itself. The calls stop when there are no more dicts inside, which is why every recursive function needs a simple case that doesn’t recurse.
+\code{out.update(\allowbreak{}other)\allowbreak{}} (section 1) copies every key/value of \code{other} into \code{out}.
+Recursion is also a neat way to copy nested dicts. Calling a “merge” function with an empty second dict, as in \code{deep\_merge(\allowbreak{}v,\allowbreak{}\ \{\})\allowbreak{}}, rebuilds \code{v} level by level, so the result shares no inner dicts with the input. That matters when the spec says “neither input may be modified”.
+\Needspace{10\baselineskip}
+\subsection{Raising \code{KeyError} and \code{ValueError} yourself}
+Section 1 showed Python raising \code{KeyError} when a key is missing. Your own functions can raise it too, when the spec says “KeyError if the item doesn’t exist”: \code{raise\ KeyError(\allowbreak{}name)\allowbreak{}}. By convention, the message of a \code{KeyError} is just the missing key. \code{ValueError} is for “the key exists but the value doesn’t make sense”, like removing more units than are in stock.
+\Needspace{10\baselineskip}
+\subsection{\code{sorted} on a generator, with a key}
+\code{sorted} accepts anything you can loop over, including a generator expression (Day 1, section 8):
+\Needspace{2\baselineskip}
+\begin{pycode}
+sorted((name for name, qty in inv.items() if qty < 5), key=lambda n: (inv[n], n))
+\end{pycode}
+Read it in two parts. The generator produces the names whose quantity is below 5. The key sorts them by quantity, and by name when quantities are equal (section 4). The result is a list of names.
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 3} after every change; peek at \code{solutions/\allowbreak{}} only after 15 minutes stuck.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}counting.\allowbreak{}py} & implement & word frequencies, top-k with tie-breaks, first unique char \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}grouping.\allowbreak{}py} & implement & anagram groups, invert dict, group\_by, two-sum \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}nested.\allowbreak{}py} & implement & get/set by dotted path, flatten/unflatten, deep merge \\
+\code{exercises/\allowbreak{}ex04\_\allowbreak{}fix\_\allowbreak{}me.\allowbreak{}py} & \textbf{debug} & an inventory module with 6 bugs \\
+\hline
+\end{xltabular}
+\end{datatable}
+Background for each:
+\begin{itemize}
+\item \textbf{ex01} is counting (section 3) plus ranking with tie-breaks (section 4). “Top-k” means “the k best”. “First unique character” means the first character that appears exactly once: count everything first, then walk through the string again in order.
+\item \textbf{ex02} is grouping. Two words are \textbf{anagrams} if they use exactly the same letters, like “listen” and “silent”. A neat trick: sort each word’s letters (\code{\textquotedbl{}\textquotedbl{}.join(\allowbreak{}sorted(\allowbreak{}\textquotedbl{}listen\textquotedbl{})\allowbreak{})\allowbreak{}} gives \code{\textquotedbl{}eilnst\textquotedbl{}}). All anagrams produce the same sorted string, so you can use it as the grouping key. \textbf{Two-sum} asks: given a list of numbers and a target, find two positions whose numbers add up to the target. The slow way tries every pair. The dict way walks through the list once and, for each number \code{x}, asks “have I already seen \code{target\ -\ x}?”, using a dict from value to position. It’s a classic example of a dict replacing a loop inside a loop.
+\item \textbf{ex03} works with nested data. A \textbf{dotted path} like \code{\textquotedbl{}db.port\textquotedbl{}} is a compact way of writing \code{config[\textquotedbl{}db\textquotedbl{}][\textquotedbl{}port\textquotedbl{}]}. \textbf{Flattening} turns \code{\{\textquotedbl{}db\textquotedbl{}:\allowbreak{}\ \{\textquotedbl{}port\textquotedbl{}:\allowbreak{}\ 1\}\}} into \code{\{\textquotedbl{}db.port\textquotedbl{}:\allowbreak{}\ 1\}}, and \textbf{unflattening} reverses it. These are natural candidates for recursion (a function that calls itself for each nested level), or for a loop that walks down one level at a time.
+\item \textbf{ex04} is an inventory, a dict from item name to quantity, with six functions that each contain one bug. Several of them are traps from this document.
+\end{itemize}
+Which tools each function needs (section numbers in brackets; “D1”/”D2” mean Day 1/Day 2):
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.45}Y{1.55}@{}}
+\rowcolor{primary}
+\thd{Function} & \thd{Tools} \\ \hline
+\endhead
+\code{word\_\allowbreak{}frequencies} & \code{split(\allowbreak{})\allowbreak{}}, \code{strip(\allowbreak{}chars)\allowbreak{}}, \code{lower} (D2), \code{d.\allowbreak{}get(\allowbreak{}k,\allowbreak{}\ 0)\allowbreak{}\ +\ 1} (3) \\
+\code{top\_\allowbreak{}k\_\allowbreak{}words} & \code{sorted(\allowbreak{}d.\allowbreak{}items(\allowbreak{})\allowbreak{},\allowbreak{}\ key=\allowbreak{}lambda\ kv:\allowbreak{}\ (\allowbreak{}-kv[\allowbreak{}1]\allowbreak{},\allowbreak{}\ kv[\allowbreak{}0]\allowbreak{})\allowbreak{})\allowbreak{}} (4), slicing \code{[\allowbreak{}:\allowbreak{}k]\allowbreak{}} \\
+\code{first\_\allowbreak{}unique\_\allowbreak{}char} & counting (3), then \code{enumerate} over the string (D1) \\
+\code{most\_\allowbreak{}common\_\allowbreak{}char} & counting (3), \code{max(\allowbreak{}d,\allowbreak{}\ key=\allowbreak{}d.\allowbreak{}get)\allowbreak{}} (4) \\
+\code{common\_\allowbreak{}elements} & \code{set(\allowbreak{}a)\allowbreak{}\ \&\allowbreak{}\ set(\allowbreak{}b)\allowbreak{}} (8), \code{sorted} \\
+\code{group\_\allowbreak{}anagrams} & \code{\textquotedbl{}\textquotedbl{}.\allowbreak{}join(\allowbreak{}sorted(\allowbreak{}w)\allowbreak{})\allowbreak{}} as the key (D2), \code{setdefault(\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}.\allowbreak{}append} (9), \code{list(\allowbreak{}d.\allowbreak{}values(\allowbreak{})\allowbreak{})\allowbreak{}} \\
+\code{invert\_\allowbreak{}dict} & \code{for\ k,\allowbreak{}\ v\ in\ d.\allowbreak{}items(\allowbreak{})\allowbreak{}}, \code{setdefault} (9), a dict comprehension (6) \\
+\code{group\_\allowbreak{}by} & calling the function you’re given, \code{key\_\allowbreak{}fn(\allowbreak{}x)\allowbreak{}}, then \code{setdefault} (9) \\
+\code{two\_\allowbreak{}sum} & \code{enumerate}, a dict from value to index, \code{return\ (\allowbreak{}i,\allowbreak{}\ j)\allowbreak{}} / \code{None} (9) \\
+\code{build\_\allowbreak{}graph} & \code{for\ a,\allowbreak{}\ b\ in\ edges}, \code{setdefault(\allowbreak{}a,\allowbreak{}\ set(\allowbreak{})\allowbreak{})\allowbreak{}.\allowbreak{}add(\allowbreak{}b)\allowbreak{}} (9), dict comprehension with \code{sorted} \\
+\code{get\_\allowbreak{}path} / \code{set\_\allowbreak{}path} & \code{split(\allowbreak{}\textquotedbl{}.\allowbreak{}\textquotedbl{})\allowbreak{}}, walking down a path, \code{parts[\allowbreak{}:\allowbreak{}-1]\allowbreak{}}, \code{isinstance} (9) \\
+\code{flatten\_\allowbreak{}dict} / \code{deep\_\allowbreak{}merge} & recursion, \code{isinstance}, \code{update} (9) \\
+\code{unflatten\_\allowbreak{}dict} & \code{set\_\allowbreak{}path} in a loop \\
+\code{ex04\_\allowbreak{}fix\_\allowbreak{}me} & \code{get}, \code{del}, \code{dict(\allowbreak{}a)\allowbreak{}} copies (7), \code{fromkeys} trap (3), \code{sum(\allowbreak{}d.\allowbreak{}values(\allowbreak{})\allowbreak{})\allowbreak{}} \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 3
+\end{shcode}
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can sort \code{(\allowbreak{}key,\allowbreak{}\ count)\allowbreak{}} pairs by count desc then key asc without thinking.
+\item I know what \code{max(\allowbreak{}d,\allowbreak{}\ key=\allowbreak{}d.get)\allowbreak{}} returns on ties.
+\item I know why \code{dict.fromkeys(\allowbreak{}k,\allowbreak{}\ [])\allowbreak{}} and \code{result\ =\allowbreak{}\ original} are bugs.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Counting and grouping are the backbone of tokenizers, caches, and parsers; know the idioms cold.
+\item Write tie-breaks into the sort key. \code{reverse=\allowbreak{}True} reverses every component, not just the count.
+\item Keys must be hashable. Convert lists to tuples before counting pairs.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

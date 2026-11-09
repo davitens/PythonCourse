@@ -1,0 +1,1122 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{01}
+\renewcommand{\courseDayInt}{1}
+\renewcommand{\courseShort}{FOUNDATIONS}
+\renewcommand{\courseTitle}{Python Foundations\\+ Running Tests}
+\renewcommand{\courseSubtitle}{Types, control flow, functions, lists, and the edit-test-fix loop.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Core Python}
+\renewcommand{\courseFolder}{day01\_foundations}
+\renewcommand{\courseEyebrow}{DAY 01\enspace\textcolor{rule}{\textperiodcentered}\enspace FOUNDATIONS}
+\renewcommand{\courseTopics}{\topic{Types}\topic{Control flow}\topic{Functions}\topic{Lists}\topic{unittest}}
+\renewcommand{\courseNext}{Turn the page to Day 2.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Write small functions with confidence, know the core types and list operations cold, and get comfortable with the “edit → run tests → read failure → fix” loop you’ll use in the exam.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Write small functions with confidence, know the core types and list operations cold, and get comfortable with the “edit → run tests → read failure → fix” loop you’ll use in the exam.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Before we start: what the exam actually asks of you}
+In the test you will not be asked to invent a program. You’ll be given a file of Python code (a hundred lines or a few hundred) that \emph{almost} works. Someone has written a correct program and then changed a handful of small things in it to break it. You’ll also get a written description of what the code is supposed to do (the \textbf{spec}) and a set of automatic checks (the \textbf{tests}). Your score is how many of those checks pass when time runs out.
+That changes what “knowing Python” means for you. You need to be able to look at a line like
+\Needspace{2\baselineskip}
+\begin{pycode}
+mid = (lo + hi) / 2
+\end{pycode}
+and immediately think “that gives a decimal number, but it’s used as a list position, so it should be \code{/\allowbreak{}/\allowbreak{}}”. The bugs are rarely exotic. They’re tiny details: a \code{\textless{}\allowbreak{}} that should be \code{\textless{}\allowbreak{}=\allowbreak{}}, a \code{return} that’s indented one level too far, a list that’s shared when it should be copied. Today we go through the basic building blocks of Python slowly, and for each one we’ll look at exactly those details.
+Read this file with a terminal open next to it. Every time you see an example, type it in yourself. Reading code and running code teach you different things, and you need both.
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{The REPL: your scratchpad}
+\Needspace{10\baselineskip}
+\subsection{What it is}
+If you open a terminal and type \code{python3} (and press Enter), you get a prompt that looks like \code{\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}\textgreater{}\allowbreak{}}. This is the \textbf{REPL}, short for \emph{Read, Evaluate, Print, Loop}: Python reads what you type, evaluates it, prints the result, and waits for the next line. It’s a calculator that understands all of Python.
+\Needspace{9\baselineskip}
+\begin{txtcode}
+$ python3
+>>> 2 + 3
+5
+>>> "hello".upper()
+'HELLO'
+>>> x = 10
+>>> x * 2
+20
+\end{txtcode}
+You don’t need \code{print(\allowbreak{})\allowbreak{}} here. The REPL prints the value of whatever expression you type. To leave it, type \code{exit(\allowbreak{})\allowbreak{}} or press Ctrl-D.
+\Needspace{10\baselineskip}
+\subsection{Why it matters in the exam}
+The exam forbids AI and web search, but it does \textbf{not} forbid running Python. So whenever you’re unsure what a line of the broken code does, you can copy a small version of it into the REPL and see. For example, if the code says \code{-7\ /\allowbreak{}/\allowbreak{}\ 2} and you’re not sure whether that’s \code{-3} or \code{-4}, you don’t have to guess or reason it out:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> -7 // 2
+-4
+\end{txtcode}
+Five seconds, and you know.
+\begin{tipbox}[REPL habit]
+\textbf{When unsure how something behaves, try it in the REPL in 5 seconds} instead of guessing. In the exam, a 5-second REPL check beats a 10-minute bug hunt.
+\end{tipbox}
+\Needspace{10\baselineskip}
+\subsection{Built-in documentation: \code{help(\allowbreak{})\allowbreak{}} and \code{dir(\allowbreak{})\allowbreak{}}}
+Python ships with its own documentation, and the REPL can show it. That’s your offline manual during the exam.
+\code{help(\allowbreak{}something)\allowbreak{}} prints the documentation for a function or method: what arguments it takes and what it does.
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> help(list.insert)
+Help on method_descriptor:
+
+insert(self, index, object, /)
+    Insert object before index.
+\end{txtcode}
+This tells you that \code{insert} takes a position (\code{index}) and a value (\code{object}), and puts the value \emph{before} that position. When the help text is long, it opens in a pager: scroll with the arrow keys and press \code{q} to get back to the prompt.
+\code{dir(\allowbreak{}something)\allowbreak{}} lists everything you can do with a value. It’s useful when you remember that a method exists but not its exact name.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> dir("")
+[... 'capitalize', 'casefold', 'center', 'count', 'encode', 'endswith', ... 'isdigit', ...]
+\end{txtcode}
+(The names starting with \code{\_\_} are internal machinery. You can ignore them for now. We’ll meet some on Day 4.)
+You can also type several expressions separated by commas to compare them side by side. Python packs them into a \emph{tuple} (a fixed group of values, written in parentheses) and prints it:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 7 // 2, 7 / 2, -7 // 2, -7 % 3
+(3, 3.5, -4, 2)
+\end{txtcode}
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{Numbers and the surprises they hide}
+Python has two main kinds of number: \textbf{integers} (\code{int}, whole numbers like \code{7} or \code{-3}) and \textbf{floating-point numbers} (\code{float}, numbers with a decimal point like \code{3.5}). Most arithmetic behaves exactly as you learned at school. A few operations don’t, and those are exactly where exam bugs like to hide, because the wrong version looks perfectly reasonable.
+\Needspace{10\baselineskip}
+\subsection{Two kinds of division: \code{/\allowbreak{}} and \code{/\allowbreak{}/\allowbreak{}}}
+Python has two division operators, and they do different things.
+\code{/\allowbreak{}} is ordinary division. It \textbf{always} gives a float, even when the division is exact:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 7 / 2
+3.5
+>>> 6 / 2
+3.0
+\end{txtcode}
+Notice that \code{6\ /\allowbreak{}\ 2} gives \code{3.0}, not \code{3}. The \code{.0} means it’s a float.
+\code{/\allowbreak{}/\allowbreak{}} is \textbf{floor division}: it divides and then rounds \emph{down} to a whole number. With integers, the result is an int.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 7 // 2
+3
+>>> 6 // 2
+3
+\end{txtcode}
+Why does this matter? Because positions in a list must be integers. If you try to use a float as a position, Python refuses:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> letters = ["a", "b", "c", "d"]
+>>> letters[4 / 2]
+TypeError: list indices must be integers or slices, not float
+>>> letters[4 // 2]
+'c'
+\end{txtcode}
+So whenever you see a division whose result is used as a position, a size or a count (for example “the middle of the list”), it should almost certainly be \code{/\allowbreak{}/\allowbreak{}}. If it’s \code{/\allowbreak{}}, you’ve found a bug.
+\Needspace{10\baselineskip}
+\subsection{“Rounding down” with negative numbers}
+“Round down” means “go toward minus infinity”, which is not the same as “drop the decimals” when the number is negative.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 7 // 2      # 3.5 rounded down
+3
+>>> -7 // 2     # -3.5 rounded down: -4 is below -3.5
+-4
+\end{txtcode}
+Many people expect \code{-3} here. There’s a different function that \emph{does} just drop the decimals: \code{int(\allowbreak{})\allowbreak{}}. It rounds toward zero:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> int(3.5)
+3
+>>> int(-3.5)
+-3
+\end{txtcode}
+For positive numbers, \code{/\allowbreak{}/\allowbreak{}} and \code{int(\allowbreak{}a\ /\allowbreak{}\ b)\allowbreak{}} give the same answer. For negative numbers they differ. If a spec says “truncate toward zero”, it means \code{int(\allowbreak{}a\ /\allowbreak{}\ b)\allowbreak{}}. If it says “floor”, it means \code{a\ /\allowbreak{}/\allowbreak{}\ b}.
+\Needspace{10\baselineskip}
+\subsection{The remainder: \code{\%}}
+\code{\%} (called “modulo”) gives the remainder of a division:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 17 % 5      # 17 = 3*5 + 2
+2
+>>> 10 % 2      # even numbers have remainder 0
+0
+\end{txtcode}
+It’s used constantly: \code{n\ \%\ 2\ =\allowbreak{}=\allowbreak{}\ 0} tests whether a number is even, and \code{i\ \%\ len(\allowbreak{}items)\allowbreak{}} makes an index “wrap around” to the start of a list when it goes past the end. With negative numbers, Python’s \code{\%} always gives a result with the same sign as the number on the right:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> -7 % 3
+2
+\end{txtcode}
+This is actually convenient. It means \code{(\allowbreak{}i\ -\ 1)\allowbreak{}\ \%\ len(\allowbreak{}items)\allowbreak{}} correctly wraps from position 0 back to the last position, instead of producing a negative number.
+\Needspace{10\baselineskip}
+\subsection{Rounding: \code{round(\allowbreak{})\allowbreak{}}}
+\code{round(\allowbreak{})\allowbreak{}} rounds to the nearest integer, but when a number is exactly halfway (\code{.5}) it goes to the nearest \textbf{even} number. This is called “banker’s rounding”:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> round(2.5)
+2
+>>> round(3.5)
+4
+>>> round(2.6)
+3
+\end{txtcode}
+You probably won’t need this often, but if a test expects \code{3} and the code uses \code{round(\allowbreak{}2.5)\allowbreak{}}, now you know why it gets \code{2}.
+\Needspace{10\baselineskip}
+\subsection{Floats are approximate}
+Computers store floats in binary, and most decimal fractions (like \code{0.1}) can’t be represented exactly in binary, just as \code{1/\allowbreak{}3} can’t be written exactly in decimal (\code{0.3333...}). The tiny errors usually don’t show, but they’re there:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> 0.1 + 0.2
+0.30000000000000004
+>>> 0.1 + 0.2 == 0.3
+False
+\end{txtcode}
+The lesson: \textbf{never compare floats with \code{=\allowbreak{}=\allowbreak{}}}. Instead, check whether they’re \emph{close enough}, i.e. whether the difference between them is tiny:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> abs((0.1 + 0.2) - 0.3) < 1e-9
+True
+\end{txtcode}
+(\code{abs} gives the absolute value, which is the distance from zero, and \code{1e-9} is scientific notation for 0.000000001.)
+Tests do the same thing using a special check called \code{assertAlmostEqual}, which we’ll see in section 7. When money is involved, careful code avoids floats altogether and counts in whole cents instead (\code{1999} cents rather than \code{19.99} euros).
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{True, False, and “truthiness”}
+\Needspace{10\baselineskip}
+\subsection{Booleans}
+A \textbf{boolean} (\code{bool}) is a value that is either \code{True} or \code{False}. Comparisons produce booleans:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> 3 > 2
+True
+>>> 3 == 4
+False
+>>> "a" != "b"
+True
+\end{txtcode}
+\code{if} and \code{while} use booleans to decide what to do:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if temperature > 30:
+    print("hot")
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Every value can act as true or false}
+Here’s something Python does that many languages don’t: you can put \textbf{any} value after \code{if}, not just a boolean. Python decides whether it counts as true or false. This is called the value’s \textbf{truthiness}. You can see the decision Python makes by calling \code{bool(\allowbreak{})\allowbreak{}} on the value:
+\Needspace{14\baselineskip}
+\begin{txtcode}
+>>> bool(5)
+True
+>>> bool(0)
+False
+>>> bool("hello")
+True
+>>> bool("")
+False
+>>> bool([1, 2])
+True
+>>> bool([])
+False
+>>> bool(None)
+False
+\end{txtcode}
+The rule is simple. These values count as false, and we call them \textbf{falsy}:
+\begin{itemize}
+\item the number zero (\code{0} or \code{0.0})
+\item an empty string \code{\textquotedbl{}\textquotedbl{}}
+\item an empty list \code{[]}, empty dict \code{\{\}}, empty set or tuple
+\item the special value \code{None} (which means “nothing here”; more on it below)
+\end{itemize}
+Everything else counts as true (\textbf{truthy}).
+This lets you write short, readable checks like:
+\Needspace{7\baselineskip}
+\begin{pycode}
+if items:              # "if the list is not empty"
+    print(items[0])
+
+if not name:           # "if the name is empty"
+    name = "anonymous"
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{What is \code{None}?}
+\code{None} is a special value that means “no value”. A function that doesn’t return anything gives back \code{None}. Dict lookups that find nothing can give back \code{None} (Day 3). Code often uses \code{None} to mean “not set yet” or “not found”.
+To check whether something is \code{None}, write \code{x\ is\ None} (not \code{x\ =\allowbreak{}=\allowbreak{}\ None}). Both usually work, but \code{is} checks “is this the very same object”, and since there is only one \code{None} in the whole program, that’s the precise question. \code{is\ None} is also what every experienced Python programmer writes, so you’ll see it everywhere.
+\Needspace{10\baselineskip}
+\subsection{The trap: when zero is a real answer}
+Truthiness is convenient, but it treats “zero”, “empty” and “nothing” as the same thing, and sometimes they aren’t.
+\begin{trapbox}[Truthiness trap]
+\code{If\ not\ x:\allowbreak{}} is True for \code{0}, \code{\textquotedbl{}\textquotedbl{}}, \code{[]}, \code{None}. If \code{0} is a valid value, write \code{if\ x\ is\ None:\allowbreak{}} instead. This is a very common exam bug.
+\end{trapbox}
+Let’s see it with a concrete example. Imagine a dictionary that stores how many items of each fruit are left in stock. (A dictionary maps names to values, and Day 3 is entirely about them. For now, \code{stock.get(\allowbreak{}name)\allowbreak{}} means “look up \code{name} in \code{stock}, and give back \code{None} if it isn’t there”.)
+\Needspace{8\baselineskip}
+\begin{pycode}
+stock = {"apples": 5, "pears": 0}
+
+def describe(name):
+    count = stock.get(name)
+    if not count:
+        return "we don't sell that"
+    return f"{count} left"
+\end{pycode}
+Let’s try it:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> describe("apples")
+'5 left'
+>>> describe("bananas")
+"we don't sell that"
+>>> describe("pears")
+"we don't sell that"
+\end{txtcode}
+The last answer is wrong. We \emph{do} sell pears, we just have none left. What happened? \code{stock.get(\allowbreak{}\textquotedbl{}pears\textquotedbl{})\allowbreak{}} returned \code{0}. Then \code{if\ not\ count:\allowbreak{}} asked “is \code{count} falsy?”, and \code{0} is falsy, so the function took the “we don’t sell that” branch, exactly as it did for bananas where \code{count} was \code{None}.
+The author meant “if the fruit isn’t in the dictionary”, but wrote “if the count is zero or missing”. The fix is to ask the precise question:
+\Needspace{2\baselineskip}
+\begin{pycode}
+    if count is None:          # only when the lookup found nothing
+        return "we don't sell that"
+\end{pycode}
+Now \code{describe(\allowbreak{}\textquotedbl{}pears\textquotedbl{})\allowbreak{}} correctly says \code{'0\ left'}. (On Day 3 you’ll see an even clearer way to write it: \code{if\ name\ not\ in\ stock:\allowbreak{}}.)
+Whenever you see \code{if\ not\ x:\allowbreak{}} or \code{if\ x:\allowbreak{}} in exam code, ask yourself: \emph{could \code{x} legitimately be \code{0} or an empty string?} If yes, the check is probably a bug.
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{Control flow: deciding and repeating}
+“Control flow” means the order in which lines run: \code{if} chooses between alternatives, and loops repeat things. This is where most off-by-one mistakes live, so it’s worth knowing \emph{exactly} which values every loop goes through.
+\Needspace{10\baselineskip}
+\subsection{\code{for} loops and \code{range}}
+A \code{for} loop runs its body once for each item in a sequence:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for fruit in ["apple", "pear", "kiwi"]:
+    print(fruit)
+\end{pycode}
+To loop over numbers, use \code{range}. The key fact about \code{range}: \textbf{it stops before the end number}. \code{range(\allowbreak{}5)\allowbreak{}} gives 0, 1, 2, 3, 4 (five numbers, but not 5).
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> list(range(5))
+[0, 1, 2, 3, 4]
+>>> list(range(2, 6))        # start at 2, stop before 6
+[2, 3, 4, 5]
+>>> list(range(2, 10, 3))    # count in steps of 3
+[2, 5, 8]
+>>> list(range(5, 0, -1))    # count down; still stops BEFORE 0
+[5, 4, 3, 2, 1]
+\end{txtcode}
+(\code{list(\allowbreak{}...)\allowbreak{}} just turns the range into a list so the REPL can show all the numbers at once.)
+Why does \code{range} exclude the end? Because then \code{range(\allowbreak{}len(\allowbreak{}items)\allowbreak{})\allowbreak{}} produces exactly the valid positions of a list. A list with 4 items has positions 0, 1, 2 and 3, and \code{range(\allowbreak{}4)\allowbreak{}} is exactly 0, 1, 2, 3.
+This is also where many bugs hide. Whenever you see a \code{range} in exam code, ask: \emph{should the last value be included?}
+\begin{itemize}
+\item “for each position in the list” → \code{range(\allowbreak{}len(\allowbreak{}items)\allowbreak{})\allowbreak{}}
+\item “for each pair of neighbours \code{items[i]}, \code{items[i+1]}” → \code{range(\allowbreak{}len(\allowbreak{}items)\allowbreak{}\ -\ 1)\allowbreak{}}, because the last position has no neighbour after it
+\item “from 1 to n, including n” → \code{range(\allowbreak{}1,\allowbreak{}\ n\ +\ 1)\allowbreak{}}
+\item “count down from n−1 to 0, including 0” → \code{range(\allowbreak{}n\ -\ 1,\allowbreak{}\ -1,\allowbreak{}\ -1)\allowbreak{}}
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Getting the position and the value together: \code{enumerate}}
+Sometimes you need both the position of an item and the item itself. \code{enumerate} gives you both:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> for i, fruit in enumerate(["apple", "pear", "kiwi"]):
+...     print(i, fruit)
+...
+0 apple
+1 pear
+2 kiwi
+\end{txtcode}
+(The \code{...} is the REPL telling you it’s waiting for the rest of the loop. Press Enter on an empty line to run it.)
+Positions start at 0. If you need them to start at 1, for example for line numbers in an error message (“error on line 1”), write \code{enumerate(\allowbreak{}lines,\allowbreak{}\ start=\allowbreak{}1)\allowbreak{}}. Forgetting \code{start=\allowbreak{}1} is a classic exam bug when a spec talks about “line numbers”.
+\Needspace{10\baselineskip}
+\subsection{Walking two lists together: \code{zip}}
+Imagine two lists that belong together: a list of names and a list of ages, where position 0 of one goes with position 0 of the other. You could loop over the positions with \code{range(\allowbreak{}len(\allowbreak{}names)\allowbreak{})\allowbreak{}} and index both lists. \code{zip} does that pairing for you, like a zip fastener joining its two sides tooth by tooth.
+\code{zip(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} produces \textbf{pairs}: the first item of \code{a} with the first item of \code{b}, then the second with the second, and so on. Each pair is a \textbf{tuple}, a small fixed group of values written in parentheses (more on tuples in section 8). To \emph{see} the pairs in the REPL, wrap the call in \code{list(\allowbreak{}...)\allowbreak{}}, because \code{zip} on its own produces its pairs one at a time, only when something asks for them:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> names = ["ana", "ben", "cai"]
+>>> ages = [31, 25, 40]
+>>> zip(names, ages)
+<zip object at 0x7f...>            # not the pairs themselves, just a "pair maker"
+>>> list(zip(names, ages))
+[('ana', 31), ('ben', 25), ('cai', 40)]
+\end{txtcode}
+Most of the time you use it directly in a \code{for} loop. Because each item is a pair, you can give the loop \textbf{two} variables, and Python splits each pair into them (this is called \emph{unpacking}, also in section 8):
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> for name, age in zip(names, ages):
+...     print(name, "is", age)
+...
+ana is 31
+ben is 25
+cai is 40
+\end{txtcode}
+Round by round: the first pair is \code{(\allowbreak{}'ana',\allowbreak{}\ 31)\allowbreak{}}, so \code{name\ =\allowbreak{}\ 'ana'} and \code{age\ =\allowbreak{}\ 31}; the second is \code{(\allowbreak{}'ben',\allowbreak{}\ 25)\allowbreak{}}, and so on. That is exactly the same as this longer version, which you should be able to translate back and forth in your head:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for i in range(len(names)):
+    name, age = names[i], ages[i]
+    print(name, "is", age)
+\end{pycode}
+Three more facts about \code{zip}:
+\begin{itemize}
+\item It can take more than two lists: \code{zip(\allowbreak{}a,\allowbreak{}\ b,\allowbreak{}\ c)\allowbreak{}} gives triples.
+\item \textbf{If the lists have different lengths, it stops quietly at the end of the shorter one.} No error, the extra items are simply ignored. \code{list(\allowbreak{}zip(\allowbreak{}[1,\allowbreak{}\ 2,\allowbreak{}\ 3],\allowbreak{}\ [\textquotedbl{}x\textquotedbl{}])\allowbreak{})\allowbreak{}} is \code{[(\allowbreak{}1,\allowbreak{}\ 'x')\allowbreak{}]}. That’s convenient, but it can also hide a bug.
+\item Like \code{range}, a zip object can only be walked through once. If you need the pairs twice, store them with \code{list(\allowbreak{}...)\allowbreak{}}.
+\end{itemize}
+\textbf{The neighbours trick.} A very common need is to look at each item \emph{together with the next one}: to compute differences, to check that a list is sorted, to find where values jump. \code{zip} does it neatly when you zip a list with itself shifted by one:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> nums = [1, 4, 9, 16]
+>>> nums[1:]                       # the list without its first item (slicing, section 6)
+[4, 9, 16]
+>>> list(zip(nums, nums[1:]))
+[(1, 4), (4, 9), (9, 16)]
+\end{txtcode}
+Line the two lists up to see why it works:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+nums      :  1   4   9   16
+nums[1:]  :  4   9   16
+pairs     : (1,4) (4,9) (9,16)     # zip stops when nums[1:] runs out
+\end{txtcode}
+Each column is one item and the item after it. The last item, 16, has no partner, and zip’s “stop at the shorter list” rule drops it, which is exactly what we want. So “the difference between each number and the next” becomes:
+\Needspace{2\baselineskip}
+\begin{pycode}
+[b - a for a, b in zip(nums, nums[1:])]      # [3, 5, 7]
+\end{pycode}
+(This is a list comprehension, section 6: “for each pair \code{(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}}, compute \code{b\ -\ a}”.) If \code{nums} has 0 or 1 items, \code{nums[1:\allowbreak{}]} is empty, zip produces no pairs, and the result is \code{[]} with no special case needed.
+\Needspace{10\baselineskip}
+\subsection{\code{while} loops}
+A \code{while} loop repeats as long as its condition is true. Use it when you don’t know in advance how many steps you’ll need, for example when walking through a string and consuming a different number of characters each time.
+\Needspace{2\baselineskip}
+\begin{pycode}
+i = 0
+while i < len(text):
+    ...          # look at text[i], decide how far to move
+    i += 1       # MUST move forward, or the loop never ends
+\end{pycode}
+The danger with \code{while} is the \textbf{infinite loop}: if some path through the body forgets to change the variable that the condition depends on, the condition stays true forever and the program hangs. In the exam, a test that never finishes almost always means this. For every \code{while} loop you read, check that \emph{every} path through its body makes progress.
+\Needspace{10\baselineskip}
+\subsection{\code{break} and \code{continue}}
+Inside any loop:
+\begin{itemize}
+\item \code{break} leaves the loop immediately.
+\item \code{continue} skips the rest of the current round and goes on to the next one.
+\end{itemize}
+\Needspace{7\baselineskip}
+\begin{pycode}
+for n in numbers:
+    if n < 0:
+        continue      # ignore negatives, go to the next number
+    if n == 0:
+        break         # stop the whole loop at the first zero
+    print(n)
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{The \code{for\ ...\ else} oddity}
+Python lets you attach an \code{else} to a loop. It runs \textbf{only if the loop finished without hitting \code{break}}. It’s a way of saying “if we searched everything and never found it”:
+\Needspace{7\baselineskip}
+\begin{pycode}
+for x in items:
+    if x == target:
+        print("found it")
+        break
+else:
+    print("not found")
+\end{pycode}
+It’s rare, but it confuses people who assume the \code{else} belongs to the \code{if} inside the loop. Look at the indentation: this \code{else} lines up with \code{for}, not with \code{if}.
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Functions}
+\Needspace{10\baselineskip}
+\subsection{Defining and calling}
+A \textbf{function} is a named, reusable piece of code. It receives inputs (\textbf{parameters}), does some work, and hands back a result with \code{return}.
+\Needspace{2\baselineskip}
+\begin{pycode}
+def area(width, height):
+    return width * height
+\end{pycode}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> area(3, 4)
+12
+\end{txtcode}
+In the exam, almost every function has a \textbf{docstring}: a string in triple quotes right under the \code{def} line that describes what the function must do. That docstring is the spec for that function, and your job is to make the body match it:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def area(width, height):
+    """Return the area of a width x height rectangle. Raise ValueError if either side is negative."""
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Kinds of parameters}
+You’ll see a few ways of declaring parameters. Here they all are in one signature:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def f(a, b=10, *args, key=None, **kwargs):
+    ...
+\end{pycode}
+\begin{itemize}
+\item \code{a} is an ordinary parameter. The caller must provide it.
+\item \code{b=\allowbreak{}10} has a \textbf{default value}. If the caller doesn’t provide \code{b}, it’s 10.
+\item \code{*args} collects any \emph{extra} positional values into a tuple.
+\item \code{key=\allowbreak{}None} comes after \code{*args}, which makes it \textbf{keyword-only}: it can only be passed by name, as in \code{f(\allowbreak{}1,\allowbreak{}\ key=\allowbreak{}\textquotedbl{}x\textquotedbl{})\allowbreak{}}.
+\item \code{**kwargs} collects any extra named values into a dictionary.
+\end{itemize}
+Here’s how calls map to those parameters:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+f(1)            -> a=1, b=10
+f(1, 2)         -> a=1, b=2
+f(1, 2, 3, 4)   -> a=1, b=2, args=(3, 4)
+f(1, key="x")   -> a=1, b=10, key="x"
+\end{txtcode}
+In practice you’ll mostly see the first two kinds. The others you just need to recognise.
+\Needspace{10\baselineskip}
+\subsection{Returning several values}
+A function can return several values separated by commas. Python packs them into a tuple, and the caller can unpack them into separate variables:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def min_max(nums):
+    return min(nums), max(nums)
+
+low, high = min_max([4, 1, 9])    # low = 1, high = 9
+\end{pycode}
+The built-in \code{divmod} works the same way: \code{q,\allowbreak{}\ r\ =\allowbreak{}\ divmod(\allowbreak{}17,\allowbreak{}\ 5)\allowbreak{}} gives \code{q\ =\allowbreak{}\ 3}, \code{r\ =\allowbreak{}\ 2}.
+\Needspace{10\baselineskip}
+\subsection{What a function returns when you forget \code{return}}
+Every function returns \emph{something}. If execution reaches the end of the body without meeting a \code{return}, the function returns \code{None}. That leads to two of the most common bugs you’ll meet.
+\begin{trapbox}[Missing return]
+A function that builds a result but forgets \code{return} returns \code{None}. Test output will say something like \code{AssertionError:\allowbreak{}\ None\ !=\allowbreak{}\ [1,\allowbreak{}\ 2,\allowbreak{}\ 3]}.
+\end{trapbox}
+\Needspace{7\baselineskip}
+\begin{pycode}
+def doubled(nums):
+    result = []
+    for n in nums:
+        result.append(n * 2)
+    # forgot: return result
+\end{pycode}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> print(doubled([1, 2, 3]))
+None
+\end{txtcode}
+The function did all the work and then threw it away. When a failing test shows \code{None} where it expected a real value, check the \code{return} statements first: is one missing, or is it inside an \code{if} that wasn’t taken?
+\begin{trapbox}[Return inside the loop]
+Returns after the first iteration.
+\end{trapbox}
+\Needspace{7\baselineskip}
+\begin{pycode}
+def total(nums):
+    s = 0
+    for n in nums:
+        s += n
+        return s     # BUG: indented one level too deep
+\end{pycode}
+In Python, indentation isn’t decoration. It decides which lines belong to which block. Here \code{return\ s} is indented at the same level as \code{s\ +=\allowbreak{}\ n}, so it’s part of the loop body. The function adds the first number and returns immediately:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> total([1, 2, 3])
+1
+\end{txtcode}
+Moving \code{return\ s} four spaces to the left puts it after the loop, and the function returns 6. A useful clue: if a function gives the right answer for one-item inputs but the wrong answer for longer ones, suspect an indentation problem.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{Lists}
+A \textbf{list} is an ordered collection of values, written with square brackets: \code{[3,\allowbreak{}\ 1,\allowbreak{}\ 2]}. Lists can grow and shrink, and you can change their contents. (Programmers say they’re \emph{mutable}.) They’re the most common data structure in exam code: they hold the input, collect the results, and serve as stacks and queues.
+\Needspace{10\baselineskip}
+\subsection{Changing a list in place vs. getting a new value}
+The most important thing to understand about list methods is this: \textbf{some methods change the list itself and return \code{None}; others leave the list alone and return a new value.} Confusing the two is a frequent bug.
+Let’s go through the main ones in the REPL:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> a = [3, 1, 2]
+>>> a.append(4)          # add one item at the end
+>>> a
+[3, 1, 2, 4]
+>>> a.extend([5, 6])     # add every item of another list
+>>> a
+[3, 1, 2, 4, 5, 6]
+>>> a.insert(0, 9)       # put 9 at position 0, shifting the rest right
+>>> a
+[9, 3, 1, 2, 4, 5, 6]
+\end{txtcode}
+Notice that \code{a.append(\allowbreak{}4)\allowbreak{}} printed nothing. It changed \code{a} and returned \code{None}. A related mistake is \code{a.append(\allowbreak{}[5,\allowbreak{}\ 6])\allowbreak{}}: that adds \emph{one} item, which happens to be a list, giving \code{[...,\allowbreak{}\ [5,\allowbreak{}\ 6]]}. \code{extend} is the one that adds each element.
+Removing items:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> a.pop()              # remove the LAST item and give it back
+6
+>>> a.pop(0)             # remove the item at position 0 and give it back
+9
+>>> a
+[3, 1, 2, 4, 5]
+>>> a.remove(2)          # remove the first item EQUAL to 2 (not position 2!)
+>>> a
+[3, 1, 4, 5]
+>>> a.index(4)           # where is the first 4?
+2
+\end{txtcode}
+\code{remove} and \code{index} raise an error (\code{ValueError}) if the value isn’t in the list.
+\code{append} together with \code{pop(\allowbreak{})\allowbreak{}} lets you use a list as a \textbf{stack}: the last thing you put in is the first thing you take out, like a pile of plates. You’ll see stacks in parsers and in depth-first search.
+\Needspace{10\baselineskip}
+\subsection{Sorting: \code{sort(\allowbreak{})\allowbreak{}} vs \code{sorted(\allowbreak{})\allowbreak{}}}
+This pair is the classic example of “changes in place” vs “returns a new value”.
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> a = [3, 1, 2]
+>>> b = sorted(a)        # returns a NEW sorted list; a is untouched
+>>> b
+[1, 2, 3]
+>>> a
+[3, 1, 2]
+>>> a.sort()             # sorts a itself, returns None
+>>> a
+[1, 2, 3]
+\end{txtcode}
+The trap is writing \code{a\ =\allowbreak{}\ a.sort(\allowbreak{})\allowbreak{}}. That sorts the list and then replaces \code{a} with the return value of \code{sort(\allowbreak{})\allowbreak{}}, which is \code{None}. Your list is gone.
+Both accept a \code{key} argument, which is a function that says \emph{what to sort by}. A \code{lambda} is a quick way to write a small one-line function inline: \code{lambda\ w:\allowbreak{}\ len(\allowbreak{}w)\allowbreak{}} means “given \code{w}, return \code{len(\allowbreak{}w)\allowbreak{}}”.
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> words = ["kiwi", "fig", "banana", "apple"]
+>>> sorted(words)                            # alphabetical
+['apple', 'banana', 'fig', 'kiwi']
+>>> sorted(words, key=lambda w: len(w))      # by length
+['fig', 'kiwi', 'apple', 'banana']
+>>> sorted(words, key=lambda w: (len(w), w)) # by length, then alphabetically for equal lengths
+['fig', 'kiwi', 'apple', 'banana']
+>>> sorted([3, 1, 2], reverse=True)          # biggest first
+[3, 2, 1]
+\end{txtcode}
+The third example uses a \textbf{tuple} as the key. Python compares tuples item by item: first by length, and only if the lengths are equal, by the word itself. That’s how you implement a spec that says “sort by X, and break ties by Y”. We’ll use this a lot on Day 3.
+\Needspace{10\baselineskip}
+\subsection{Slicing: taking a piece of a list}
+A \textbf{slice} gives you a part of a list, written \code{a[start:\allowbreak{}stop]}. Like \code{range}, it includes \code{start} and \textbf{stops before} \code{stop}. Negative numbers count from the end: \code{-1} is the last item, \code{-2} the one before.
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> a = [0, 1, 2, 3, 4, 5]
+>>> a[1:4]       # positions 1, 2, 3
+[1, 2, 3]
+>>> a[:2]        # from the start: the first 2 items
+[0, 1]
+>>> a[-2:]       # the last 2 items
+[4, 5]
+>>> a[::2]       # every second item (the third number is the step)
+[0, 2, 4]
+>>> a[::-1]      # step -1: a reversed copy
+[5, 4, 3, 2, 1, 0]
+\end{txtcode}
+A useful way to picture it is that the numbers point at the \emph{gaps between} items:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+  | 0 | 1 | 2 | 3 | 4 | 5 |
+  0   1   2   3   4   5   6
+\end{txtcode}
+\code{a[1:\allowbreak{}4]} takes everything between gap 1 and gap 4, which is three items. In general \code{a[i:\allowbreak{}j]} contains \code{j\ -\ i} items.
+Two more facts:
+\begin{itemize}
+\item Asking for a single position that doesn’t exist (\code{a[10]}) is an error (\code{IndexError}), but a slice that goes too far just gives you fewer items, or none: \code{a[10:\allowbreak{}]} is \code{[]}. Slices never raise.
+\item The same slicing works on strings (Day 2) and bytes (Day 5).
+\end{itemize}
+There’s one subtle trap. To get “the last \code{n} items” you’d naturally write \code{a[-n:\allowbreak{}]}. But look at what happens when \code{n} is 0:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> n = 0
+>>> a[-n:]
+[0, 1, 2, 3, 4, 5]
+\end{txtcode}
+You wanted zero items and got the whole list. That’s because \code{-0} is just \code{0}, so \code{a[-0:\allowbreak{}]} is \code{a[0:\allowbreak{}]}, “everything from the start”. The safe version is \code{a[len(\allowbreak{}a)\allowbreak{}\ -\ n:\allowbreak{}]}. Tests love checking the \code{n\ =\allowbreak{}\ 0} case.
+\Needspace{10\baselineskip}
+\subsection{Two names, one list: aliasing}
+This is one of the most important ideas in Python, so take your time with it.
+In Python, a variable isn’t a box that holds a value. It’s a \textbf{name tag attached to a value}. When you write \code{b\ =\allowbreak{}\ a} with a list, you don’t copy the list. You attach a second name tag to the \emph{same} list:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> a = [1, 2, 3]
+>>> b = a
+>>> b.append(4)
+>>> a
+[1, 2, 3, 4]
+\end{txtcode}
+We changed \code{b}, and \code{a} changed too, because they’re the same list. This is called \textbf{aliasing}. If you want an independent copy, you have to ask for one:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> a = [1, 2, 3]
+>>> b = a[:]          # or list(a), or a.copy()
+>>> b.append(4)
+>>> a
+[1, 2, 3]
+\end{txtcode}
+Now \code{b} is a separate list. When a spec says “returns a new list” or “must not modify its input”, check that the code really makes a copy.
+The same issue shows up in a sneakier form when building a grid (a list of lists):
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> grid = [[0] * 3] * 3
+>>> grid
+[[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+>>> grid[0][0] = 1
+>>> grid
+[[1, 0, 0], [1, 0, 0], [1, 0, 0]]
+\end{txtcode}
+We set one cell, and a whole column changed. \code{[0]\ *\ 3} builds one row, and \code{*\ 3} then makes a list containing that \emph{same row} three times: three name tags for one list. The correct way builds a fresh row each time:
+\Needspace{2\baselineskip}
+\begin{pycode}
+grid = [[0] * 3 for _ in range(3)]
+\end{pycode}
+(This uses a \emph{comprehension}, explained next. \code{\_} is a conventional name for a loop variable you don’t use.) You’ll need this when building tables in the dynamic-programming drills.
+\Needspace{10\baselineskip}
+\subsection{List comprehensions}
+A \textbf{list comprehension} builds a new list from a loop, in one line. This:
+\Needspace{2\baselineskip}
+\begin{pycode}
+squares = []
+for x in range(5):
+    squares.append(x * x)
+\end{pycode}
+can be written as:
+\Needspace{2\baselineskip}
+\begin{pycode}
+squares = [x * x for x in range(5)]       # [0, 1, 4, 9, 16]
+\end{pycode}
+Read it as “a list of \code{x\ *\ x}, for each \code{x} in \code{range(\allowbreak{}5)\allowbreak{}}”. You can add a condition to keep only some items:
+\Needspace{2\baselineskip}
+\begin{pycode}
+evens = [x for x in nums if x % 2 == 0]   # only the even numbers
+\end{pycode}
+And you can have two \code{for}s, which work like nested loops, read left to right (the first \code{for} is the outer loop):
+\Needspace{2\baselineskip}
+\begin{pycode}
+flat = [x for row in grid for x in row]   # every x of every row: flattens a grid
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Don’t remove from a list while looping over it}
+Here’s a bug that looks completely reasonable:
+\Needspace{7\baselineskip}
+\begin{pycode}
+nums = [-1, -2, 3]
+for x in nums:
+    if x < 0:
+        nums.remove(x)
+print(nums)          # [-2, 3]  -- the -2 survived!
+\end{pycode}
+Why? The \code{for} loop keeps track of its position by number. In the first round it’s at position 0 and sees \code{-1}, which gets removed. Everything shifts left: \code{-2} moves to position 0 and \code{3} to position 1. The loop then moves on to position 1, which is now \code{3}. It never looks at \code{-2}.
+The fix is not to change the list you’re looping over. Build a new list with just the items you want to keep:
+\Needspace{2\baselineskip}
+\begin{pycode}
+nums = [x for x in nums if x >= 0]
+\end{pycode}
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{Tests: how your work is checked}
+\Needspace{10\baselineskip}
+\subsection{What a test is}
+The exam grades you with Python’s built-in testing tool, \textbf{unittest}. A test is a small piece of code that calls your function with a known input and checks that the output is what it should be. Here’s a complete test file:
+\Needspace{12\baselineskip}
+\begin{pycode}
+import unittest
+from ex01_lists import running_total
+
+class TestRunningTotal(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(running_total([1, 2, 3]), [1, 3, 6])
+
+    def test_empty(self):
+        self.assertEqual(running_total([]), [])
+
+if __name__ == "__main__":
+    unittest.main()
+\end{pycode}
+Piece by piece:
+\begin{itemize}
+\item \code{import\ unittest} loads the testing tool, and \code{from\ ex01\_lists\ import\ running\_total} loads the function being tested.
+\item \code{class\ TestRunningTotal(\allowbreak{}unittest.TestCase)\allowbreak{}:\allowbreak{}} creates a group of related tests. (Classes are Day 4’s topic. For now, treat this line as a fixed pattern.)
+\item Each method whose name starts with \code{test} is one test. unittest finds and runs them automatically.
+\item \code{self.assertEqual(\allowbreak{}actual,\allowbreak{}\ expected)\allowbreak{}} is the check itself: “these two must be equal”. If they are, the test passes. If not, it fails and prints both values.
+\item The last two lines let you run the file directly with \code{python\ test\_file.py}.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{The most common checks}
+unittest provides several “assert” methods. Here are the ones you’ll see most, with what each one checks:
+\Needspace{7\baselineskip}
+\begin{pycode}
+self.assertEqual(a, b)          # a == b
+self.assertTrue(x)              # x is truthy
+self.assertFalse(x)             # x is falsy
+self.assertIsNone(x)            # x is None
+self.assertIn(item, container)  # item in container
+\end{pycode}
+Remember the floats from section 2, where \code{0.1\ +\ 0.2\ =\allowbreak{}=\allowbreak{}\ 0.3} is \code{False}? That’s why there’s a special check for floats, \code{assertAlmostEqual}. It passes when the two numbers are equal \emph{after rounding to 7 decimal places}, so tiny binary errors don’t matter:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def test_average(self):
+    result = average([0.1, 0.2])          # 0.15000000000000002 in reality
+    self.assertAlmostEqual(result, 0.15)  # passes
+    # self.assertEqual(result, 0.15)      # would FAIL because of the tiny error
+\end{pycode}
+And to check that a function correctly \emph{refuses} bad input by raising an error, tests use \code{assertRaises} with a \code{with} block:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def test_negative_size(self):
+    with self.assertRaises(ValueError):
+        chunk([1, 2, 3], -1)
+\end{pycode}
+This reads as: “the code inside this block must raise a \code{ValueError}”. If it does, the test passes. If it raises nothing, or a different kind of error, the test fails. (Errors and \code{raise} are covered properly on Day 4.)
+\Needspace{10\baselineskip}
+\subsection{Running the tests}
+From a terminal in the folder that contains the tests:
+\Needspace{2\baselineskip}
+\begin{shcode}
+python -m unittest                 # run every test file whose name starts with "test"
+python -m unittest -v              # same, but list each test with ok / FAIL / ERROR
+python -m unittest test_ex01_lists.TestRunningTotal.test_basic   # run just one test
+\end{shcode}
+The last form, \code{file.Class.method}, is worth practising. In the exam, once you’ve found a failing test, you’ll re-run just that one while you work on it, instead of scrolling through fifty results each time.
+In this course, \code{python\ run.py\ \textless{}\allowbreak{}day\textgreater{}\allowbreak{}} does the same job from the course’s root folder: it runs that day’s tests against your exercise files and prints a score like the exam does.
+\Needspace{10\baselineskip}
+\subsection{Reading a failure}
+When a test fails, unittest prints a report like this:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+FAIL: test_basic (test_ex01_lists.TestRunningTotal.test_basic)
+Traceback (most recent call last):
+  File ".../test_ex01_lists.py", line 7, in test_basic
+    self.assertEqual(running_total([1, 2, 3]), [1, 3, 6])
+AssertionError: Lists differ: [1, 2, 3] != [1, 3, 6]
+\end{txtcode}
+Read it from top to bottom:
+\begin{enumerate}
+\item \textbf{\code{FAIL:\allowbreak{}\ test\_basic}} tells you which test failed.
+\item The \textbf{Traceback} tells you which line of the test was running: line 7, which called \code{running\_total(\allowbreak{}[1,\allowbreak{}\ 2,\allowbreak{}\ 3])\allowbreak{}}.
+\item The last line shows \textbf{what your code returned} (first, \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3]}) and \textbf{what was expected} (second, \code{[1,\allowbreak{}\ 3,\allowbreak{}\ 6]}).
+\end{enumerate}
+So without opening the function at all, we already know a lot. Given \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3]}, it returned its input unchanged, when it should have returned the running sums (1, then 1+2=3, then 1+2+3=6). A good guess is that it appends each number instead of the sum so far. Now you open the code with a specific suspicion.
+There are two kinds of bad result, and they’re labelled differently:
+\begin{itemize}
+\item \textbf{FAIL} means the code ran but gave a wrong answer: an assertion was false.
+\item \textbf{ERROR} means the code crashed with an exception (\code{TypeError}, \code{IndexError}, ...). The traceback then continues into \emph{your} code and shows the exact line where it crashed, which makes errors usually quicker to fix.
+\end{itemize}
+\Needspace{10\baselineskip}
+\setcounter{section}{7}
+\section{The toolbox: everything else the exercises use}
+So far we’ve covered the big ideas. The exercises also lean on a set of small tools that we haven’t properly met yet. Some of them get a whole day later on (strings on Day 2, sets on Day 3), but you need the basics today, so here they are, one at a time. Keep the REPL open and try things as you go. If you change an example and it surprises you, that’s the good part.
+\Needspace{10\baselineskip}
+\subsection{Adding to a variable: \code{+=\allowbreak{}}}
+You’ll often want to take a variable and change it a little: add 1 to a counter, add a number to a total. You could write \code{total\ =\allowbreak{}\ total\ +\ n}, but this comes up so often that Python has a shorter way: \code{total\ +=\allowbreak{}\ n}. It means exactly the same thing.
+Here’s the classic use, a running total. We start at zero and add each number as we reach it:
+\Needspace{2\baselineskip}
+\begin{pycode}
+total = 0
+for n in [1, 2, 3]:
+    total += n      # total goes 1, then 3, then 6
+\end{pycode}
+The same shortcut works with the other operators, so you’ll also see \code{i\ -=\allowbreak{}\ 1}, \code{n\ *=\allowbreak{}\ 2} and \code{k\ \%=\allowbreak{}\ 5}.
+\Needspace{10\baselineskip}
+\subsection{Tuples, and splitting them apart}
+Sometimes a few values belong together, like the x and y of a point on a map. Python can hold them as one thing, called a \textbf{tuple}: \code{point\ =\allowbreak{}\ (\allowbreak{}3,\allowbreak{}\ 4)\allowbreak{}}. It looks like a list with round brackets, and the main difference is that you can’t change a tuple once it exists.
+The nice part is getting the values back out. You could write \code{x\ =\allowbreak{}\ point[0]} and \code{y\ =\allowbreak{}\ point[1]}, but Python lets you do it in one go by putting two names on the left:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> point = (3, 4)
+>>> x, y = point
+>>> x
+3
+>>> y
+4
+\end{txtcode}
+This is called \textbf{unpacking}. You need one name per value, or Python complains with a \code{ValueError}.
+Once you know this, a few lines you’d otherwise find puzzling make sense:
+\Needspace{2\baselineskip}
+\begin{pycode}
+out, s = [], 0          # two variables in one line: out is [] and s is 0
+a, b = b, a             # swaps a and b
+\end{pycode}
+The swap works because Python works out the whole right side first, and only then assigns. So \code{a} and \code{b} swap without one overwriting the other.
+Now and then you need to repeat something but don’t care about the counter. Programmers name that variable \code{\_}, a single underscore. It’s an ordinary name. It just tells whoever reads the code “I’m not going to use this”:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for _ in range(3):      # do this 3 times
+    print("hi")
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Choosing between two values on one line}
+Say you want a label that says whether a number is even or odd. The long way takes four lines:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if n % 2 == 0:
+    label = "even"
+else:
+    label = "odd"
+\end{pycode}
+When all you’re doing is picking between two values, you can write it on one line, almost as you’d say it out loud:
+\Needspace{2\baselineskip}
+\begin{pycode}
+label = "even" if n % 2 == 0 else "odd"
+\end{pycode}
+The order takes a moment to get used to, because the condition sits in the middle: first the value you want if it’s true, then the test, then the value you want if it’s false. You’ll often see this right after a \code{return}. For example, \code{return\ items[0]\ if\ items\ else\ None} gives back the first item, or \code{None} if the list is empty.
+\Needspace{10\baselineskip}
+\subsection{Checking that a number is in a range}
+To check that \code{base} is between 2 and 16, you could write \code{2\ \textless{}\allowbreak{}=\allowbreak{}\ base\ and\ base\ \textless{}\allowbreak{}=\allowbreak{}\ 16}. Python lets you write it the way you would in a maths class:
+\Needspace{2\baselineskip}
+\begin{pycode}
+if 2 <= base <= 16:
+\end{pycode}
+Pay attention to \code{\textless{}\allowbreak{}} versus \code{\textless{}\allowbreak{}=\allowbreak{}} here. “From 1 to 10, including both” is \code{1\ \textless{}\allowbreak{}=\allowbreak{}\ x\ \textless{}\allowbreak{}=\allowbreak{}\ 10}. If someone writes \code{\textless{}\allowbreak{}} by mistake, 1 and 10 stop counting, and that’s a very common planted bug.
+\Needspace{10\baselineskip}
+\subsection{Asking a list about itself: \code{len}, \code{sum}, \code{min}, \code{max}}
+These four do what their names say:
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> nums = [4, 1, 9]
+>>> len(nums)         # how many items?
+3
+>>> sum(nums)         # what do they add up to?
+14
+>>> min(nums)         # the smallest
+1
+>>> max(nums)         # the biggest
+9
+\end{txtcode}
+One thing can catch you out. \code{min} and \code{max} crash with a \code{ValueError} on an empty list, because an empty list has no smallest item. \code{sum(\allowbreak{}[])\allowbreak{}} is fine, and gives 0. So if the list might be empty, check that before you call \code{min} or \code{max}.
+You can also give \code{min} and \code{max} separate values instead of a list: \code{min(\allowbreak{}3,\allowbreak{}\ 7)\allowbreak{}} is 3 and \code{max(\allowbreak{}3,\allowbreak{}\ 7)\allowbreak{}} is 7. Together they can force a number to stay inside a range, which is called \textbf{clamping}. Imagine a volume control that only goes from 0 to
+\begin{enumerate}
+\item Whatever number someone asks for, you want the nearest one that’s allowed:
+\end{enumerate}
+\Needspace{2\baselineskip}
+\begin{pycode}
+max(0, min(x, 10))
+\end{pycode}
+Work from the inside out. \code{min(\allowbreak{}x,\allowbreak{}\ 10)\allowbreak{}} stops the number going above 10, and then \code{max(\allowbreak{}0,\allowbreak{}\ ...)\allowbreak{}} stops it going below 0. Try it with \code{x} as -5, 5 and 15, and you’ll get 0, 5 and 10.
+\Needspace{10\baselineskip}
+\subsection{Removing the sign: \code{abs}}
+\code{abs(\allowbreak{}x)\allowbreak{}} gives you the number without its minus sign, so \code{abs(\allowbreak{}-7)\allowbreak{}} and \code{abs(\allowbreak{}7)\allowbreak{}} are both 7. It’s handy when a problem says “ignore the sign”, or when it’s easier to work on a positive number and put the minus back at the end.
+\Needspace{10\baselineskip}
+\subsection{Dividing and keeping the remainder: \code{divmod}}
+You already know \code{/\allowbreak{}/\allowbreak{}} (how many times does it fit?) and \code{\%} (what’s left over?). When you need both answers, \code{divmod} gives you the two at once, and you can unpack them:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> divmod(17, 5)
+(3, 2)
+>>> q, r = divmod(17, 5)      # 5 fits 3 times into 17, with 2 left over
+\end{txtcode}
+Where this really helps is taking a number apart, one digit at a time. Dividing by 10 chops off the last digit, and the remainder is the digit you chopped off:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> divmod(472, 10)
+(47, 2)
+>>> divmod(47, 10)
+(4, 7)
+>>> divmod(4, 10)
+(0, 4)
+\end{txtcode}
+You got the digits 2, 7 and 4, from the last to the first, and you stop when the number reaches 0. The nice surprise is that this works in any base. Use \code{divmod(\allowbreak{}n,\allowbreak{}\ 2)\allowbreak{}} to get binary digits, or \code{divmod(\allowbreak{}n,\allowbreak{}\ 16)\allowbreak{}} to get hexadecimal ones. You’ll need this for \code{int\_to\_base}. Do it on a positive number, though, because \code{/\allowbreak{}/\allowbreak{}} rounds negative numbers the unexpected way (section 2). That’s another job for \code{abs}.
+\Needspace{10\baselineskip}
+\subsection{Numbers and text are different things}
+To Python, \code{42} is a number and \code{\textquotedbl{}42\textquotedbl{}} is text: the character 4 followed by the character 2. They behave very differently. \code{4\ +\ 2} is 6, but \code{\textquotedbl{}4\textquotedbl{}\ +\ \textquotedbl{}2\textquotedbl{}} is \code{\textquotedbl{}42\textquotedbl{}}. To go from one to the other, use \code{str} and \code{int}:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> str(42)
+'42'
+>>> int("42")
+42
+>>> int("4x")
+ValueError: invalid literal for int() with base 10: '4x'
+\end{txtcode}
+Here’s a handy trick that comes from this. A \code{for} loop over a string visits one character at a time, so turning a number into a string is another way to get at its digits:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> for c in str(305):
+...     print(c)
+...
+3
+0
+5
+\end{txtcode}
+Each \code{c} is a one-character string, so if you want to do arithmetic with it, turn it back into a number with \code{int(\allowbreak{}c)\allowbreak{}}.
+\Needspace{10\baselineskip}
+\subsection{Just enough about strings}
+Day 2 is all about strings, but four small tools show up today, so here’s a preview.
+\code{\textquotedbl{}Hello\textquotedbl{}.lower(\allowbreak{})\allowbreak{}} gives you a lowercase copy, \code{'hello'}. This is how you compare text without caring about capitals.
+\code{in} asks whether one piece of text appears inside another, so \code{\textquotedbl{}e\textquotedbl{}\ in\ \textquotedbl{}hello\textquotedbl{}} is \code{True}.
+\code{split} cuts a string into a list of pieces, wherever it finds the separator you give it:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "hello big world".split(" ")
+['hello', 'big', 'world']
+\end{txtcode}
+\code{join} does the opposite, gluing a list of strings back into one. Its form looks backwards at first, because you call it on the glue and pass it the pieces:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> " ".join(["world", "big", "hello"])
+'world big hello'
+>>> "-".join(["a", "b"])
+'a-b'
+>>> "".join(["a", "b"])
+'ab'
+\end{txtcode}
+Strings can also be indexed and sliced like lists, so \code{\textquotedbl{}hello\textquotedbl{}[0]} is \code{\textquotedbl{}h\textquotedbl{}} and \code{\textquotedbl{}hello\textquotedbl{}[:\allowbreak{}:\allowbreak{}-1]} is \code{\textquotedbl{}olleh\textquotedbl{}}. Notice that this flips the \textbf{letters}. If you want to flip the order of the \textbf{words}, split the string into a list first, reverse the list, and join it back together.
+\Needspace{10\baselineskip}
+\subsection{Just enough about sets}
+Imagine you’re at the door of a party with a guest list, checking people off as they arrive. You don’t care what order they came in, you can’t tick the same person twice, and all you ever ask is “is this person already here?”. That’s a \textbf{set}: a collection with no duplicates and no particular order.
+You make one with \code{set(\allowbreak{})\allowbreak{}}, and you add to it with \code{.add(\allowbreak{})\allowbreak{}}. A list has \code{.append(\allowbreak{})\allowbreak{}} because it has an end to append to. A set has no end, so the method has a different name.
+\Needspace{10\baselineskip}
+\begin{txtcode}
+>>> seen = set()
+>>> seen.add(7)
+>>> seen.add(7)       # it's already there, so nothing happens
+>>> seen
+{7}
+>>> 7 in seen
+True
+>>> 8 in seen
+False
+\end{txtcode}
+A warning: \code{\{\}} makes an empty dictionary, not an empty set. To get an empty set you have to write \code{set(\allowbreak{})\allowbreak{}}.
+If you hand a list to \code{set(\allowbreak{})\allowbreak{}}, you get one copy of each value, which makes it a quick way to throw away duplicates:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> set([3, 5, 5, 1])
+{1, 3, 5}
+\end{txtcode}
+But the order is gone, since sets don’t have one. So if you need the values in order, sort them afterwards. \code{sorted} always gives you back a list, smallest first:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> sorted(set([3, 5, 5, 1]))
+[1, 3, 5]
+\end{txtcode}
+That’s why \code{sorted(\allowbreak{}set(\allowbreak{}nums)\allowbreak{})\allowbreak{}} is such a common line. It means “the different values in \code{nums}, from smallest to biggest”. The biggest is then at position \code{-1}, and the second biggest at \code{-2}, as long as there are at least two values.
+The other big use is remembering what you’ve already come across. Suppose you want to remove duplicates from a list but keep the original order. A set alone can’t do that, because it forgets the order. So you use two things at once: a list that builds the answer, and a set that remembers what you’ve seen.
+\Needspace{7\baselineskip}
+\begin{pycode}
+seen = set()
+out = []
+for x in items:
+    if x not in seen:
+        seen.add(x)
+        out.append(x)
+\end{pycode}
+Let’s follow it through with \code{items\ =\allowbreak{}\ [3,\allowbreak{}\ 1,\allowbreak{}\ 3]}:
+\begin{itemize}
+\item First comes 3. We haven’t seen it, so we note it in \code{seen} and add it to \code{out}. Now \code{out} is \code{[3]}.
+\item Then comes 1. It’s new as well, so the same thing happens. Now \code{out} is \code{[3,\allowbreak{}\ 1]}.
+\item Then 3 comes again. This time it’s already in \code{seen}, so we skip it. \code{out} stays \code{[3,\allowbreak{}\ 1]}.
+\end{itemize}
+Why not just check \code{if\ x\ not\ in\ out}? That would give the right answer too, but \code{in} on a list has to look through the list item by item, while a set can answer straight away, however big it gets. With a long list the difference is huge.
+\Needspace{10\baselineskip}
+\subsection{Going backwards: \code{reversed}}
+\code{reversed(\allowbreak{}items)\allowbreak{}} goes through a list from the end to the start, and leaves the original list alone. Like \code{zip}, it hands out its items one at a time, so to see them all at once, wrap it in \code{list(\allowbreak{}...)\allowbreak{}}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> list(reversed([1, 2, 3]))
+[3, 2, 1]
+\end{txtcode}
+You’ll often pair it with \code{join}. In \code{int\_to\_base}, the digits come out last-to-first, so you collect them in a list, then flip them and glue them together with \code{\textquotedbl{}\textquotedbl{}.join(\allowbreak{}reversed(\allowbreak{}out)\allowbreak{})\allowbreak{}}.
+Lists also have a method called \code{items.reverse(\allowbreak{})\allowbreak{}}, and it’s easy to mix the two up. It’s the same story as \code{sorted} and \code{sort}: the method changes the list itself and returns \code{None}.
+\Needspace{10\baselineskip}
+\subsection{Counting with \code{sum(\allowbreak{}1\ for\ ...)\allowbreak{}}}
+You know that a list comprehension builds a list, as in \code{[x\ *\ x\ for\ x\ in\ nums]}. If you only want to pass those values straight into a function like \code{sum}, you can leave out the square brackets:
+\Needspace{2\baselineskip}
+\begin{pycode}
+sum(x * x for x in nums)
+\end{pycode}
+This is called a \textbf{generator expression}, but you can think of it as a comprehension with no list at the end of it.
+It gives us a neat way to count things. How many vowels does a string have?
+\Needspace{2\baselineskip}
+\begin{pycode}
+sum(1 for c in s if c in "aeiou")
+\end{pycode}
+Go through it as Python does. It looks at each character \code{c}. Whenever \code{c} is a vowel, it produces a 1. Then \code{sum} adds up all those 1s, and the total is the number of vowels. Change the condition, and you can count anything you like.
+And here’s the sum of a number’s digits, using the string trick from earlier:
+\Needspace{2\baselineskip}
+\begin{pycode}
+sum(int(c) for c in str(472))     # 4 + 7 + 2 = 13
+\end{pycode}
+\Needspace{10\baselineskip}
+\subsection{Stopping with an error: \code{raise}}
+Sometimes a function is handed something it can’t work with, like being asked to split a list into chunks of size -1. Returning a made-up answer would only hide the problem. Instead, the function stops and complains:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def chunk(items, size):
+    if size <= 0:
+        raise ValueError("size must be positive")
+    ...
+\end{pycode}
+\code{raise} stops the function on the spot. Nothing after it runs, and nothing is returned. The error travels back to whoever called the function. The text in the brackets is a message for the person reading it. Tests normally check only the type of error, with \code{assertRaises(\allowbreak{}ValueError)\allowbreak{}} (section 7), not the wording. Day 4 goes further into errors.
+You’ve also seen \code{raise\ NotImplementedError} in every exercise you haven’t done yet. That’s just a placeholder for “nobody has written this yet”, so the function fails loudly rather than quietly returning \code{None}. \textbf{Delete that line} and write your code in its place.
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 1} after every change; peek at \code{solutions/\allowbreak{}} only after 15 minutes stuck.
+\end{practicebox}
+There are two kinds of exercise in this course:
+\begin{itemize}
+\item \textbf{Implement}: the function’s body is empty and its docstring describes what it must do. You write the body. These build fluency.
+\item \textbf{Debug} (files named \code{*\_fix\_me.py}): the function is complete but contains exactly one planted bug. These train the exam skill directly.
+\end{itemize}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}lists.\allowbreak{}py} & implement & 7 list functions \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}numbers.\allowbreak{}py} & implement & 5 number functions (incl. base conversion) \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}fix\_\allowbreak{}me.\allowbreak{}py} & \textbf{debug} & 7 functions that each contain exactly one bug \\
+\hline
+\end{xltabular}
+\end{datatable}
+Which tools each function needs (all of them are explained above; the section is in brackets):
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.43}Y{1.57}@{}}
+\rowcolor{primary}
+\thd{Function} & \thd{Tools} \\ \hline
+\endhead
+\code{running\_\allowbreak{}total} & a loop, \code{+=\allowbreak{}} (8), \code{append} (6) \\
+\code{chunk} & \code{range} with a step (4), slicing (6), \code{raise} (8) \\
+\code{flatten} & a comprehension with two \code{for}s (6), or two nested loops \\
+\code{second\_\allowbreak{}largest} & \code{set} and \code{sorted} (8), \code{x\ if\ cond\ else\ y} (8) \\
+\code{rotate} & \code{\%} (2), slicing and \code{+} to join two lists (6) \\
+\code{remove\_\allowbreak{}duplicates} & the “seen” set pattern (8) \\
+\code{pairwise\_\allowbreak{}diff} & the \code{zip} neighbours trick (4) \\
+\code{fizzbuzz} & \code{range(\allowbreak{}1,\allowbreak{}\ n\ +\ 1)\allowbreak{}} (4), \code{\%} (2), \code{str(\allowbreak{})\allowbreak{}} (8) \\
+\code{digit\_\allowbreak{}sum} & \code{abs}, \code{str}, \code{int}, \code{sum(\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{}\ for\ .\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}} (8) \\
+\code{is\_\allowbreak{}prime} & a \code{while} loop (4), \code{\%} (2) \\
+\code{collatz\_\allowbreak{}steps} & a \code{while} loop (4), \code{/\allowbreak{}/\allowbreak{}} and \code{\%} (2), \code{raise} (8) \\
+\code{int\_\allowbreak{}to\_\allowbreak{}base} & \code{divmod} (8), indexing into the string \code{\textquotedbl{}0123456789abcdef\textquotedbl{}}, \code{reversed} and \code{join} (8) \\
+\code{ex03\_\allowbreak{}fix\_\allowbreak{}me} & \code{sum}, \code{len}, \code{min}, \code{max}, \code{lower}, \code{split}, \code{join} (8), \code{range} (4), slicing (6) \\
+\hline
+\end{xltabular}
+\end{datatable}
+Run them from the course root:
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 1           # all of today's tests
+python run.py 1 -k ex03   # only the tests whose name contains "ex03"
+\end{shcode}
+A note on ex02: “base conversion” means writing a number in a different base. We normally write numbers in base 10 (digits 0–9), but computers also use base 2 (binary, digits 0 and 1) and base 16 (hexadecimal, digits 0–9 and a–f). For example, 13 in binary is \code{1101}, because 13 = 8 + 4 + 1. You find the digits by repeatedly dividing by the base and collecting the remainders with \code{\%} and \code{/\allowbreak{}/\allowbreak{}}. The docstring explains exactly what’s expected.
+For \code{ex03\_fix\_me.py}: \textbf{don’t rewrite the functions.} Run the tests, read the failure, find the single wrong line, fix it. That’s the exam skill. Time yourself: aim for \textless{} 3 min per bug.
+Why not just rewrite them? In the exam the code is long and its parts depend on each other. A rewrite can easily change some behaviour a test relies on and break things that were working. A one-line fix aimed at one specific failing test is faster and much safer.
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I can predict the output of \code{-7\ /\allowbreak{}/\allowbreak{}\ 2}, \code{a[-0:\allowbreak{}]}, \code{[[0]*2]*2} mutation.
+\item I know \code{sort(\allowbreak{})\allowbreak{}} returns \code{None} and \code{sorted(\allowbreak{})\allowbreak{}} returns a new list.
+\item I can read a unittest failure and tell “got” from “expected”.
+\item All day-1 tests pass.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Read the failing assertion first; reproduce its input in the REPL, then fix the smallest line that explains it.
+\item \code{return} and mutability bugs are common. Check them before digging into deeper logic.
+\item The tests are the spec: exact types, formats, and boundary behaviour all score points.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

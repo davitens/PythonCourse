@@ -1,0 +1,196 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{09}
+\renewcommand{\courseDayInt}{9}
+\renewcommand{\courseShort}{MOCK EXAM 1}
+\renewcommand{\courseTitle}{Mock Exam\\\#1}
+\renewcommand{\courseSubtitle}{A full timed rehearsal: broken BPE tokenizer, 51 tests.}
+\renewcommand{\courseTime}{120 min + review}
+\renewcommand{\courseFocus}{Timed exam}
+\renewcommand{\courseFolder}{day09\_mock\_exam\_1}
+\renewcommand{\courseEyebrow}{DAY 09\enspace\textcolor{rule}{\textperiodcentered}\enspace MOCK EXAM 1}
+\renewcommand{\courseTopics}{\topic{BPE}\topic{Timed run}\topic{Debrief}\topic{Bug journal}}
+\renewcommand{\courseNext}{Turn the page to Day 10.}
+\renewcommand{\courseTestCount}{51}
+\renewcommand{\courseGoal}{A 120-minute dress rehearsal of the real assessment: fix a broken BPE tokenizer and maximize the 51 passing tests. No AI, no web, no solutions.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[The brief]
+A 120-minute dress rehearsal of the real assessment: fix a broken BPE tokenizer and maximize the 51 passing tests. No AI, no web, no solutions.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Rules}
+\begin{itemize}
+\item \textbf{Set a 120-minute timer.} Close everything except an editor, a terminal, and \code{exam/\allowbreak{}}.
+\item No AI, no web search, no looking at \code{solution/\allowbreak{}}. \code{help(\allowbreak{})\allowbreak{}} and \code{dir(\allowbreak{})\allowbreak{}} in a Python REPL are allowed.
+\item Only edit \code{exam/\allowbreak{}bpe.py}. Don’t touch the tests.
+\item Your score = number of passing tests out of 51.
+\end{itemize}
+Why be so strict with yourself? Today’s real purpose is to find out how \emph{you} perform under exam conditions: how far you get in two hours, and which kinds of bugs cost you the most time. A quick peek at the solution or a half-hour break gives you a score that tells you nothing. Most of the learning happens afterwards, in the review, and the review is only useful if the attempt was honest.
+\Needspace{10\baselineskip}
+\unnumberedsection{Before the timer: background you need}
+You’re allowed to read this section before starting the timer. You don’t need any knowledge of machine learning: a tokenizer is a text-processing algorithm, built entirely from things you’ve practised (strings on Day 2, dicts on Day 3, classes on Day 4, bytes and UTF-8 on Day 5).
+\Needspace{10\baselineskip}
+\subsection{What a tokenizer is}
+Language models like the ones behind chat assistants don’t read letters. They read sequences of whole numbers, called \textbf{tokens}. A \textbf{tokenizer} is the program that converts text into tokens (\emph{encoding}) and tokens back into text (\emph{decoding}). For example, \code{\textquotedbl{}hello\ world\textquotedbl{}} might become \code{[31373,\allowbreak{}\ 995]}.
+There’s a trade-off in choosing what a token stands for:
+\begin{itemize}
+\item \textbf{One token per byte.} There are only 256 possible tokens, and \emph{any} text can be represented, including typos, emoji and unseen languages. But sequences get very long: \code{\textquotedbl{}the\textquotedbl{}} takes 3 tokens.
+\item \textbf{One token per word.} Sequences are short, but the vocabulary is enormous, and a word that wasn’t in the vocabulary (a new name, a typo) can’t be represented at all.
+\end{itemize}
+\textbf{Byte Pair Encoding (BPE)} gets the best of both. It starts from single bytes, so anything can always be represented, and then \emph{learns} extra tokens for byte sequences that occur often. Common words and pieces of words end up as single tokens, while rare text falls back to smaller pieces.
+\Needspace{10\baselineskip}
+\subsection{Training: how the extra tokens are learned}
+Training looks at a sample text and repeatedly finds the most common pair of neighbouring tokens, then gives that pair a token of its own:
+\begin{enumerate}
+\item Start with the UTF-8 bytes of the text, as numbers 0–255. These are the first 256 tokens.
+\item \textbf{Count} how often each pair of neighbouring tokens occurs (the function \code{get\_stats}).
+\item Take the \textbf{most frequent} pair, with a fixed rule for ties.
+\item Give it a \textbf{new id}: 256 for the first pair learned, then 257, 258, and so on. Record this \textbf{merge}: “\code{(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} becomes \code{new\_id}”.
+\item \textbf{Replace} every occurrence of the pair in the sequence with the new id (the function \code{merge}).
+\item Repeat from step 2 until you have as many tokens as requested, or no pair occurs at least twice.
+\end{enumerate}
+Each new token stands for the bytes of its two parts glued together: \code{vocab[new\_id]\ =\allowbreak{}\ vocab[a]\ +\ vocab[b]}.
+\Needspace{10\baselineskip}
+\subsection{A worked example of training}
+Let’s train on the text \code{\textquotedbl{}aaabdaaabac\textquotedbl{}}. In UTF-8 the letters are single bytes: a = 97, b = 98, c = 99, d = 100. To keep it readable, the table writes letters instead of numbers.
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.44}Y{1.10}Y{1.41}Y{1.56}Y{0.49}@{}}
+\rowcolor{primary}
+\thd{Step} & \thd{Current sequence} & \thd{Most common pairs} & \thd{Chosen pair} & \thd{New token} \\ \hline
+\endhead
+start & a a a b d a a a b a c & (a,a) ×4, (a,b) ×2 & (a,a) & 256 = \code{aa} \\
+1 & 256 a b d 256 a b a c & (256,a) ×2 and (a,b) ×2: a tie & (a,b), the smaller pair, since 97 \textless{} 256 & 257 = \code{ab} \\
+2 & 256 257 d 256 257 a c & (256,257) ×2 & (256,257) & 258 = \code{aaab} \\
+3 & 258 d 258 a c & every pair occurs once & none: stop & — \\
+\hline
+\end{xltabular}
+\end{datatable}
+Four details in this table are spec rules, and each is a likely bug location:
+\begin{itemize}
+\item \textbf{Counting overlaps.} In \code{a\ a\ a}, the pair \code{(\allowbreak{}a,\allowbreak{}\ a)\allowbreak{}} is counted twice: positions 0–1 and 1–2. That’s why the first row says ×4 (two in each \code{aaa}).
+\item \textbf{Replacing without overlaps.} When merging, \code{a\ a\ a} becomes \code{256\ a}, not \code{256\ 256}. Once a pair has been replaced, the scan jumps past \emph{both} of its elements (the A6 pattern from Day 7).
+\item \textbf{Tie-breaking.} In step 1, two pairs occur twice each. The spec says to choose the \textbf{smallest pair}, comparing tuples (Day 3): \code{(\allowbreak{}97,\allowbreak{}\ 98)\allowbreak{}} is smaller than \code{(\allowbreak{}256,\allowbreak{}\ 97)\allowbreak{}}.
+\item \textbf{Stopping.} In step 3 no pair occurs twice, so training stops, even if more tokens were requested. Merging a pair that occurs only once doesn’t save anything.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Encoding new text: replaying the merges}
+Once trained, the tokenizer can encode any text. Convert it to bytes, then apply the learned merges. The order matters: at each step, among the pairs present in the sequence, apply the one that was \textbf{learned earliest}, i.e. the one with the lowest new id. That’s because later merges were learned on top of earlier ones: 258 is made of 256 and 257, so those must exist first.
+Encoding \code{\textquotedbl{}aaab\textquotedbl{}} with the merges above:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.44}Y{1.97}Y{0.59}@{}}
+\rowcolor{primary}
+\thd{Sequence} & \thd{Pairs present that are known merges} & \thd{Apply} \\ \hline
+\endhead
+a a a b & (a,a) → 256, (a,b) → 257 & 256, the lowest \\
+256 a b & (a,b) → 257 (and (256,a), which isn’t a merge) & 257 \\
+256 257 & (256,257) → 258 & 258 \\
+258 & none & done \\
+\hline
+\end{xltabular}
+\end{datatable}
+Result: \code{[258]}, a single token for the whole string.
+\Needspace{10\baselineskip}
+\subsection{Decoding: bytes first, then text}
+To decode, look up each token’s bytes in \code{vocab}, \textbf{join all the bytes together}, and only then decode the result as UTF-8. As you saw on Day 5, a token can hold \emph{part} of a multi-byte character: one token might be \code{\textbackslash{}xc3} and the next \code{\textbackslash{}xa9}. Decoding them separately would give \code{��} instead of \code{é}. The spec also says to decode with \code{errors=\allowbreak{}\textquotedbl{}replace\textquotedbl{}}, so a sequence of ids that really doesn’t form valid UTF-8 produces \code{�} instead of crashing.
+\Needspace{10\baselineskip}
+\subsection{The extra features in the spec}
+The spec adds three features on top of basic BPE:
+\begin{itemize}
+\item \textbf{Pre-splitting (\code{split\_text}).} Before training or encoding, the text is cut into chunks: words, numbers, runs of whitespace and single punctuation characters, with a space attached to the front of the word that follows it. Merges are never allowed to cross a chunk boundary. That’s why \code{\textquotedbl{}\ world\textquotedbl{}} can become a single token, but \code{\textquotedbl{}d!\textquotedbl{}} never will. The function is a scanning loop (Day 2) with several rules applied in priority order. Read its examples in the spec carefully, because each rule is a chance for an off-by-one.
+\item \textbf{Special tokens.} Strings like \code{\textquotedbl{}\textless{}\allowbreak{}\textbar{}\allowbreak{}endoftext\textbar{}\allowbreak{}\textgreater{}\allowbreak{}\textquotedbl{}} that get a reserved id of their own and are never split up. When they’re allowed, the encoder first looks for them in the text, and encodes only the text \emph{between} them in the normal way. If two special tokens could start at the same position, the \textbf{longest} one wins.
+\item \textbf{Saving and loading.} The tokenizer can write its merges and special tokens to a small text format, and read them back. The order of the merges matters (the k-th merge must get id 256 + k). A special token’s text can itself contain spaces, which is why the spec says the string is “everything after the first space” on its line.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{How the code is organised}
+\code{get\_stats} and \code{merge} are the low-level helpers. \code{train} and \code{encode\_ordinary} use both of them, plus \code{split\_text}. \code{encode} uses \code{encode\_ordinary}, and \code{decode} uses \code{vocab}. So a bug in \code{get\_stats} or \code{merge} makes many tests fail at once, including tests of functions that are themselves correct. Following the triage rule from Day 6, start with the tests of the helpers (\code{TestGetStats}, \code{TestMerge}, \code{TestSplitText}), and work your way up.
+\Needspace{10\baselineskip}
+\subsection{Python you’ll meet in \code{bpe.py}}
+Everything the code uses has come up during the course, but a few lines pack several ideas together. Make sure you can read each of these at a glance \emph{before} the timer starts, so that during the exam you’re hunting bugs rather than decoding syntax.
+\textbf{Pairs as dict keys.} Pair counts are stored in a dict whose keys are tuples: \code{counts[(\allowbreak{}104,\allowbreak{}\ 105)\allowbreak{}]\ =\allowbreak{}\ 3} means “the pair of ids 104, 105 appears 3 times”. Tuples can be dict keys because they can’t change (Day 3, section 5). \code{pair[0]} and \code{pair[1]} are its two ids.
+\textbf{A dict passed in to be filled.} \code{get\_stats(\allowbreak{}ids,\allowbreak{}\ counts=\allowbreak{}None)\allowbreak{}} counts the pairs of one list. When given an existing dict, it \emph{adds to it} instead of starting a new one, so calling it once per chunk with the same dict totals the pairs over all chunks. The first line, \code{counts\ =\allowbreak{}\ \{\}\ if\ counts\ is\ None\ else\ counts}, is the safe-default pattern from Day 4 (section 2 and section 10): never use \code{\{\}} itself as the default.
+\textbf{Bytes as a list of numbers.} \code{list(\allowbreak{}\textquotedbl{}hi\textquotedbl{}.encode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{})\allowbreak{})\allowbreak{}} is \code{[104,\allowbreak{}\ 105]}: looping over bytes gives integers (Day 5). Going back, \code{bytes(\allowbreak{}[104])\allowbreak{}} is \code{b\textquotedbl{}h\textquotedbl{}}, and \code{vocab[a]\ +\ vocab[b]} glues two byte strings together, so the vocabulary entry of a merged token is the bytes of its two halves.
+\textbf{The vocabulary in one line.} \code{\{i:\allowbreak{}\ bytes(\allowbreak{}[i])\allowbreak{}\ for\ i\ in\ range(\allowbreak{}256)\allowbreak{}\}} is a dict comprehension (Day 3, section 6): ids 0 to 255 each map to the single byte with that value.
+\textbf{Picking the most frequent pair, with a tie rule.}
+\Needspace{2\baselineskip}
+\begin{pycode}
+pair = max(stats, key=lambda p: (stats[p], -p[0], -p[1]))
+\end{pycode}
+\code{max} over a dict looks at its keys, here the pairs (Day 3, section 4). The key function scores each pair with a tuple, and tuples compare item by item (Day 1, section 6):
+\begin{enumerate}
+\item first by \code{stats[p]}: the highest count wins;
+\item on equal counts, by \code{-p[0]}: since \code{max} picks the \emph{largest} value, negating the first id makes the \emph{smallest} first id win;
+\item if that’s equal too, by \code{-p[1]}: the smallest second id.
+\end{enumerate}
+So the tuple says, in order: “most frequent, then smallest first id, then smallest second id”. Compare it word by word with the tie rule in the spec. A missing minus sign, or the elements in the wrong order, changes which pair is chosen only when there’s a tie, which is exactly the kind of bug that slips past most tests.
+\textbf{Picking the earliest learned merge.}
+\Needspace{2\baselineskip}
+\begin{pycode}
+pair = min(stats, key=lambda p: self.merges.get(p, float("inf")))
+\end{pycode}
+\code{self.merges} maps each learned pair to its id, and earlier merges have smaller ids. So the pair with the smallest id is the one learned first. Pairs that were never learned aren’t in \code{merges}, and \code{get} gives them \code{float(\allowbreak{}\textquotedbl{}inf\textquotedbl{})\allowbreak{}}, infinity, which is larger than any id (drill 7 uses the same trick). They lose to any learned pair. If \emph{every} pair is unknown, \code{min} returns one of them anyway, which is why the next line checks \code{if\ pair\ not\ in\ self.merges:\allowbreak{}\ break}.
+\textbf{Inverting a dict.} \code{\{idx:\allowbreak{}\ s\ for\ s,\allowbreak{}\ idx\ in\ self.special\_tokens.items(\allowbreak{})\allowbreak{}\}} swaps keys and values: from \code{text\ -\textgreater{}\allowbreak{}\ id} to \code{id\ -\textgreater{}\allowbreak{}\ text}, so decoding can look tokens up by id.
+\textbf{\code{startswith} at a position.} \code{text.startswith(\allowbreak{}s,\allowbreak{}\ i)\allowbreak{}} asks whether \code{s} occurs in \code{text} \emph{starting at position \code{i}}, without slicing. It’s the same as \code{text[i:\allowbreak{}].startswith(\allowbreak{}s)\allowbreak{}}.
+\textbf{Nested unpacking.} \code{merges.items(\allowbreak{})\allowbreak{}} gives pairs like \code{(\allowbreak{}(\allowbreak{}104,\allowbreak{}\ 105)\allowbreak{},\allowbreak{}\ 256)\allowbreak{}}: a key that is itself a pair, and a value. The loop
+\Needspace{2\baselineskip}
+\begin{pycode}
+for (a, b), _ in sorted(self.merges.items(), key=lambda kv: kv[1]):
+\end{pycode}
+unpacks both levels at once: \code{(\allowbreak{}a,\allowbreak{}\ b)\allowbreak{}} takes the key apart, and \code{\_} throws away the value. \code{key=\allowbreak{}lambda\ kv:\allowbreak{}\ kv[1]} sorts the items by their value, the id, so the merges come out in the order they were learned.
+\textbf{Unpacking a generator.} \code{a,\allowbreak{}\ b\ =\allowbreak{}\ (\allowbreak{}int(\allowbreak{}x)\allowbreak{}\ for\ x\ in\ line.split(\allowbreak{})\allowbreak{})\allowbreak{}} converts both fields of a line like \code{\textquotedbl{}104\ 105\textquotedbl{}} to integers and unpacks them. If the line doesn’t have exactly two fields, the unpacking raises \code{ValueError}.
+\textbf{\code{@property} and \code{@classmethod}.} \code{vocab\_size} is a property (Day 4, section 3): you write \code{tok.vocab\_size} with no parentheses, and the method runs. \code{load} is a class method (Day 4, section 4): it’s called on the class, \code{BPETokenizer.load(\allowbreak{}text)\allowbreak{}}, receives the class as \code{cls}, and builds a new object with \code{cls(\allowbreak{})\allowbreak{}}.
+\textbf{Reading a text format by slicing lines.} In \code{load}, \code{lines[0]} is the header, \code{lines[1]} the number of merges \code{n}, and \code{lines[2:\allowbreak{}2\ +\ n]} exactly the \code{n} merge lines. After them, \code{lines[2\ +\ n]} holds the number of special tokens \code{m}, and \code{lines[3\ +\ n:\allowbreak{}3\ +\ n\ +\ m]} are their lines. Draw the file with line numbers next to it and check every index. Off-by-ones are easy here.
+\textbf{Decoding all at once.} \code{b\textquotedbl{}\textquotedbl{}.join(\allowbreak{}parts)\allowbreak{}.decode(\allowbreak{}\textquotedbl{}utf-8\textquotedbl{},\allowbreak{}\ errors=\allowbreak{}\textquotedbl{}replace\textquotedbl{})\allowbreak{}} first glues every token’s bytes together and decodes \textbf{once} (the “never decode in pieces” rule from Day 5). \code{errors=\allowbreak{}\textquotedbl{}replace\textquotedbl{}} turns invalid bytes into \code{�} instead of raising.
+\Needspace{10\baselineskip}
+\unnumberedsection{Start}
+\begin{tipbox}[Keep a pristine copy]
+Before you start, keep a pristine copy so you can retry later:
+\end{tipbox}
+\Needspace{2\baselineskip}
+\begin{shcode}
+cp exam/bpe.py exam/bpe.original.py
+\end{shcode}
+Then start the timer and run:
+\Needspace{2\baselineskip}
+\begin{shcode}
+cd day09_mock_exam_1/exam
+python -m unittest 2>&1 | tail -3              # baseline score
+python -m unittest -v 2>&1 | grep -E "ERROR|FAIL"
+\end{shcode}
+(or from the course root: \code{python\ run.py\ 9})
+The first command gives your starting score. The second lists every failing test by name, which is your to-do list for triage.
+\begin{tipbox}[Read before you fix]
+Read \code{exam/\allowbreak{}SPEC.md} first. Spend the first \textasciitilde{}10 minutes reading the spec and the code \textbf{before} fixing anything (the Day 6 workflow). Note that broken code can be slow or even loop forever: if a test run hangs, press Ctrl-C and run test classes one at a time, e.g. \code{python\ -m\ unittest\ test\_bpe.TestMerge}.
+\end{tipbox}
+\Needspace{10\baselineskip}
+\unnumberedsection{After the timer}
+\begin{enumerate}
+\item Write down your score and which bugs you found, in what order, and how long each took.
+\item Run \code{python\ run.py\ 9\ --solutions} to see the reference pass 51/51.
+\item Read \code{solution/\allowbreak{}BUGS.md} (the list of planted bugs) and compare with yours. For every bug you missed, ask: \emph{which test pointed at it, and what would have led me to it faster?} Add it to your bug journal.
+\item If you didn’t finish, \textbf{reset and redo the remaining bugs} (\code{git}-less reset: keep a copy of the original — see below).
+\end{enumerate}
+The review is worth as much as the attempt itself. When you look at the bugs you missed, you’ll usually find a pattern: a category from the Day 7 catalog you don’t check by reflex yet, a part of the spec you skimmed, or a lot of time lost on one stubborn test. That pattern is what to work on before Day 10.
+To reset, copy the pristine version back: \code{cp\ exam/\allowbreak{}bpe.original.py\ exam/\allowbreak{}bpe.py}.
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I completed the 120-minute run with no AI, web search, or solutions.
+\item I recorded my score and the order in which I found the bugs.
+\item I read \code{solution/\allowbreak{}BUGS.md} and logged every bug I missed.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Read the spec before touching code, and baseline the score before your first edit.
+\item Fix high-leverage helpers; one correct fix can turn many tests green.
+\item Debrief every missed bug: the pattern matters more than the score.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}

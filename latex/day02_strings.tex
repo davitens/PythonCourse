@@ -1,0 +1,735 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage{python-course}
+\renewcommand{\courseDay}{02}
+\renewcommand{\courseDayInt}{2}
+\renewcommand{\courseShort}{STRINGS}
+\renewcommand{\courseTitle}{Strings}
+\renewcommand{\courseSubtitle}{Slicing, methods, formatting, and the text algorithms the exam loves.}
+\renewcommand{\courseTime}{2–3 hours}
+\renewcommand{\courseFocus}{Text processing}
+\renewcommand{\courseFolder}{day02\_strings}
+\renewcommand{\courseEyebrow}{DAY 02\enspace\textcolor{rule}{\textperiodcentered}\enspace STRINGS}
+\renewcommand{\courseTopics}{\topic{Slicing}\topic{Methods}\topic{f-strings}\topic{Scanning}}
+\renewcommand{\courseNext}{Turn the page to Day 3.}
+\renewcommand{\courseTestCount}{0}
+\renewcommand{\courseGoal}{Handle any string manipulation without having to look anything up. A lot of exam bugs live in string handling: wrong \code{split}, \code{strip} misunderstood, off-by-one slices, forgotten case handling.}
+\begin{document}
+\makecover
+\setcounter{page}{2}
+\makefrontmatter
+\begin{goalbox}[Today's goal]
+Handle any string manipulation without having to look anything up. A lot of exam bugs live in string handling: wrong \code{split}, \code{strip} misunderstood, off-by-one slices, forgotten case handling.
+\end{goalbox}
+\vspace{2pt}
+\Needspace{10\baselineskip}
+\unnumberedsection{Why a whole day on strings?}
+Look at the kinds of programs these exams use: tokenizers that cut text into pieces, parsers that read a command like \code{SET\ name\ Ana}, encoders that turn text into bytes, formatters that produce a report. All of them take text in, pick it apart, and build new text. Even when the core of the algorithm is about numbers or graphs, the input usually arrives as a string that has to be split and converted first.
+Python has a lot of string methods, and several come in near-identical pairs that behave slightly differently: \code{split(\allowbreak{})\allowbreak{}} and \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}}, \code{find} and \code{index}, \code{strip} and \code{removeprefix}. Swapping one for its twin is an ideal planted bug: the code still looks right and still works on most inputs. Today you’ll learn exactly where the twins differ.
+As yesterday: keep the REPL open and type every example.
+\Needspace{10\baselineskip}
+\setcounter{section}{0}
+\section{What a string is}
+\Needspace{10\baselineskip}
+\subsection{A sequence of characters}
+A \textbf{string} (\code{str}) is a piece of text: a sequence of characters, written between quotes. Single and double quotes mean the same thing: \code{'hello'} and \code{\textquotedbl{}hello\textquotedbl{}} are identical.
+Because a string is a \emph{sequence}, everything you learned about list positions and slices on Day 1 works on strings too:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> s = "hello"
+>>> s[0]          # first character
+'h'
+>>> s[-1]         # last character
+'o'
+>>> s[1:3]        # characters at positions 1 and 2 (stops before 3)
+'el'
+>>> s[::-1]       # reversed
+'olleh'
+>>> len(s)        # number of characters
+5
+\end{txtcode}
+Each character is really a number behind the scenes, called its \textbf{code point}. \code{'h'} is 104 and \code{'é'} is 233. Section 3 shows how to see those numbers, and Day 5 shows how they become bytes in a file.
+\Needspace{10\baselineskip}
+\subsection{Strings can’t be changed}
+Unlike a list, a string can never be modified once it exists. Programmers say strings are \textbf{immutable}. If you try to change one character, Python refuses:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> s = "hello"
+>>> s[0] = "H"
+TypeError: 'str' object does not support item assignment
+\end{txtcode}
+To get “Hello”, you build a \textbf{new} string from pieces and point the name \code{s} at it:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> s = "H" + s[1:]
+>>> s
+'Hello'
+\end{txtcode}
+(\code{+} joins two strings together. That’s called \emph{concatenation}.)
+\Needspace{10\baselineskip}
+\subsection{So string methods return a new string}
+Immutability has a consequence that causes real bugs. Every string method that “changes” a string actually leaves the original alone and \textbf{returns a new string}. If you don’t keep the returned value, the work is lost.
+\begin{keybox}[Strings are immutable]
+\textbf{Methods never modify the string, they return a new one:}
+\end{keybox}
+\Needspace{2\baselineskip}
+\begin{pycode}
+s.upper()       # returns 'HELLO'; s is still 'hello'
+s = s.upper()   # this is what you meant
+\end{pycode}
+See it for yourself:
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> name = "  ana  "
+>>> name.strip()        # strip() removes spaces at both ends...
+'ana'
+>>> name                # ...but name itself is unchanged
+'  ana  '
+>>> name = name.strip() # keep the result
+>>> name
+'ana'
+\end{txtcode}
+\begin{trapbox}[No-op method calls]
+A line like \code{name.strip(\allowbreak{})\allowbreak{}} on its own does nothing. This is a classic planted bug.
+\end{trapbox}
+Notice that this is the \emph{opposite} of lists. \code{items.sort(\allowbreak{})\allowbreak{}} changes the list and returns \code{None}, so writing \code{items\ =\allowbreak{}\ items.sort(\allowbreak{})\allowbreak{}} destroys your list. With strings it’s the other way round: \code{name.strip(\allowbreak{})\allowbreak{}} returns the result, so you \textbf{must} write \code{name\ =\allowbreak{}\ name.strip(\allowbreak{})\allowbreak{}}. When you read exam code, a string method call standing alone on its own line, with nothing receiving its result, is a red flag.
+\Needspace{10\baselineskip}
+\setcounter{section}{1}
+\section{The methods you must know}
+We’ll go through the important methods in groups, according to what you’d use them for. For each one, look at the example \emph{and} the explanation, because the surprises are in the details.
+\Needspace{10\baselineskip}
+\subsection{Cutting a string into pieces: \code{split}}
+\code{split} breaks a string into a list of pieces. This is how you turn a line like \code{\textquotedbl{}SET\ name\ Ana\textquotedbl{}} into \code{[\textquotedbl{}SET\textquotedbl{},\allowbreak{}\ \textquotedbl{}name\textquotedbl{},\allowbreak{}\ \textquotedbl{}Ana\textquotedbl{}]}.
+It has two quite different modes, and this is the single most important detail in this section.
+\textbf{\code{split(\allowbreak{})\allowbreak{}} with no argument} splits on \emph{any amount} of whitespace (spaces, tabs, newlines) and throws away empty pieces. It’s “give me the words”:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "  a  b ".split()
+['a', 'b']
+>>> "one\ttwo\nthree".split()
+['one', 'two', 'three']
+\end{txtcode}
+\textbf{\code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}} with an argument} splits on \emph{exactly} that separator, \emph{every single time} it appears. Two spaces in a row produce an empty string between them, and leading or trailing spaces produce empty strings at the ends:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "  a  b ".split(" ")
+['', '', 'a', '', 'b', '']
+\end{txtcode}
+So which one is right depends on the spec. For human-written text, where people might type two spaces, you want \code{split(\allowbreak{})\allowbreak{}}. For strict formats where an empty field means something, you want the explicit separator. In comma-separated data, \code{\textquotedbl{}a,\allowbreak{},\allowbreak{}b\textquotedbl{}} has three fields and the middle one is empty:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "a,,b".split(",")
+['a', '', 'b']
+\end{txtcode}
+You can also limit the number of splits with a second argument. This is how you separate a key from a value that might itself contain the separator:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "key=value=with=equals".split("=", 1)    # split at most once
+['key', 'value=with=equals']
+>>> "a,b,c".rsplit(",", 1)                   # rsplit counts from the right
+['a,b', 'c']
+\end{txtcode}
+\code{rsplit} is handy for “the last part”, like the extension of a file name: \code{\textquotedbl{}photo.final.jpg\textquotedbl{}.rsplit(\allowbreak{}\textquotedbl{}.\textquotedbl{},\allowbreak{}\ 1)\allowbreak{}} gives \code{['photo.final',\allowbreak{}\ 'jpg']}.
+\Needspace{10\baselineskip}
+\subsection{Splitting once, safely: \code{partition}}
+\code{partition(\allowbreak{}sep)\allowbreak{}} splits at the \emph{first} occurrence of \code{sep} and always gives back exactly three things: the part before, the separator itself, and the part after.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "k:v:w".partition(":")
+('k', ':', 'v:w')
+>>> "no colon here".partition(":")
+('no colon here', '', '')
+\end{txtcode}
+The second example shows why it’s useful. When the separator is missing, \code{partition} doesn’t fail, it just returns empty strings, so you can check \code{if\ sep:\allowbreak{}} afterwards.
+\Needspace{10\baselineskip}
+\subsection{Gluing pieces together: \code{join}}
+\code{join} is the reverse of \code{split}. You call it \textbf{on the separator} and give it the list of pieces:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> "-".join(["a", "b", "c"])
+'a-b-c'
+>>> ", ".join(["ana", "ben"])
+'ana, ben'
+>>> "".join(["x", "y", "z"])     # empty separator: just concatenate
+'xyz'
+\end{txtcode}
+The separator goes only \emph{between} items, so there’s never a stray one at the end. Every item must already be a string. If you have numbers, convert them first:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> ",".join([1, 2, 3])
+TypeError: sequence item 0: expected str instance, int found
+>>> ",".join(str(n) for n in [1, 2, 3])
+'1,2,3'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Trimming the ends: \code{strip}, \code{lstrip}, \code{rstrip}, \code{removeprefix}}
+\code{strip(\allowbreak{})\allowbreak{}} removes whitespace from both ends of a string. \code{lstrip(\allowbreak{})\allowbreak{}} does only the left end, \code{rstrip(\allowbreak{})\allowbreak{}} only the right. These are very common when reading lines from a file, which end with a newline character:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "  hi \n".strip()
+'hi'
+>>> "line of text\n".rstrip()
+'line of text'
+\end{txtcode}
+Now the big trap. You can give \code{strip} an argument, and most people assume it removes that \emph{word} from the ends. It doesn’t. \textbf{The argument is a set of characters, and \code{strip} keeps removing any of those characters from the ends, in any order, for as long as it can:}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "xyhixy".strip("xy")      # removes x's and y's from both ends
+'hi'
+>>> "abba_cab".lstrip("ab")   # removes every a and b from the left, until it hits "_"
+'_cab'
+\end{txtcode}
+In the second example, if you were expecting “remove the prefix \code{ab} once”, you’d expect \code{'ba\_cab'}. Instead it stripped \code{a}, \code{b}, \code{b}, \code{a} and stopped at \code{\_}.
+If you really want to remove an exact prefix or suffix once, use \code{removeprefix} and \code{removesuffix}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "abba_cab".removeprefix("ab")
+'ba_cab'
+>>> "report.txt".removesuffix(".txt")
+'report'
+\end{txtcode}
+If the prefix isn’t there, they return the string unchanged. Mixing up \code{lstrip(\allowbreak{}prefix)\allowbreak{}} and \code{removeprefix(\allowbreak{}prefix)\allowbreak{}} is one of the most common string bugs you’ll be shown.
+\Needspace{10\baselineskip}
+\subsection{Checking the start and end: \code{startswith}, \code{endswith}}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "photo.jpg".endswith(".jpg")
+True
+>>> "photo.jpg".endswith((".jpg", ".png"))    # a tuple means "any of these"
+True
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Searching: \code{in}, \code{find}, \code{index}, \code{count}}
+The simplest question, “does this text contain that text?”, is answered by \code{in}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "ell" in "hello"
+True
+\end{txtcode}
+To find \emph{where} something is, there are two methods that differ only in what happens when it isn’t found:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> "hello".find("l")      # position of the first match
+2
+>>> "hello".find("z")      # not found: returns -1
+-1
+>>> "hello".index("z")     # not found: raises an error
+ValueError: substring not found
+\end{txtcode}
+\code{find} returning \code{-1} is a trap of its own. Remember that \code{-1} is a valid position in Python, the last character. So if code does \code{s[s.find(\allowbreak{}x)\allowbreak{}]} without checking, and \code{x} isn’t there, it silently reads the last character instead of failing. Correct code always checks \code{if\ pos\ !=\allowbreak{}\ -1:\allowbreak{}} first.
+\code{count} counts how many times a piece of text appears, \textbf{without overlapping}:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "aaaa".count("aa")
+2
+\end{txtcode}
+You might expect 3 (positions 0, 1 and 2 all start an \code{\textquotedbl{}aa\textquotedbl{}}). But once \code{count} has matched positions 0–1, it continues searching from position 2, so it finds only two. Counting \emph{overlapping} matches needs your own loop over every start position. That’s one of today’s exercises.
+\Needspace{10\baselineskip}
+\subsection{Replacing: \code{replace}}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "a-b-c".replace("-", "+")
+'a+b+c'
+>>> "aaa".replace("a", "b", 2)     # third argument: at most 2 replacements
+'bba'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Asking questions about characters: \code{isdigit}, \code{isalpha}, ...}
+These methods answer “is every character in this string of a certain kind?” and return \code{True} or \code{False}:
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> "123".isdigit()        # all digits?
+True
+>>> "abc".isalpha()        # all letters?
+True
+>>> "ab1".isalnum()        # all letters or digits?
+True
+>>> " \t\n".isspace()      # all whitespace?
+True
+>>> "".isalpha()           # an EMPTY string answers False to all of them
+False
+\end{txtcode}
+They’re used constantly in tokenizers and parsers to decide what kind of piece starts at the current position: a number, a word, or a space. Note the empty-string case: it matters when validating input.
+\code{isupper(\allowbreak{})\allowbreak{}} and \code{islower(\allowbreak{})\allowbreak{}} look only at letters and ignore everything else, so \code{\textquotedbl{}A1\textquotedbl{}.isupper(\allowbreak{})\allowbreak{}} is \code{True}.
+\Needspace{10\baselineskip}
+\subsection{Changing case}
+\Needspace{11\baselineskip}
+\begin{txtcode}
+>>> "Hello World".lower()
+'hello world'
+>>> "Hello World".upper()
+'HELLO WORLD'
+>>> "hELLO wORLD".title()        # capitalise each word
+'Hello World'
+>>> "hello world".capitalize()   # capitalise only the first character
+'Hello world'
+>>> "Hello".swapcase()
+'hELLO'
+\end{txtcode}
+The main use of \code{lower(\allowbreak{})\allowbreak{}} is \textbf{case-insensitive comparison}. To check whether two words are “the same, ignoring case”, compare \code{a.lower(\allowbreak{})\allowbreak{}\ =\allowbreak{}=\allowbreak{}\ b.lower(\allowbreak{})\allowbreak{}}. A frequent bug is lowering only one side.
+\begin{tipbox}[title() gotcha]
+\code{\textquotedbl{}apostrophe's\textquotedbl{}.title(\allowbreak{})\allowbreak{}} → \code{\textquotedbl{}Apostrophe'S\textquotedbl{}} — title() treats any non-letter as a word boundary.
+\end{tipbox}
+That’s why the title-case exercise asks you to write your own version instead of trusting \code{title(\allowbreak{})\allowbreak{}}.
+\Needspace{10\baselineskip}
+\subsection{Padding to a fixed width}
+These are for producing aligned output, or fixed-width strings like 8-digit binary numbers:
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> "7".zfill(3)          # pad with zeros on the left
+'007'
+>>> "ab".ljust(5, ".")    # pad on the right to width 5
+'ab...'
+>>> "ab".rjust(5)         # pad on the left (with spaces by default)
+'   ab'
+>>> "ab".center(6, "*")
+'**ab**'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Splitting into lines: \code{splitlines}}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> "a\nb\r\nc".splitlines()
+['a', 'b', 'c']
+\end{txtcode}
+Text files from Windows end their lines with \code{\textbackslash{}r\textbackslash{}n} instead of \code{\textbackslash{}n} (\code{\textbackslash{}r} is a “carriage return” character). \code{splitlines(\allowbreak{})\allowbreak{}} handles both, while \code{split(\allowbreak{}\textquotedbl{}\textbackslash{}n\textquotedbl{})\allowbreak{}} would leave a \code{\textbackslash{}r} at the end of each Windows line.
+\Needspace{10\baselineskip}
+\setcounter{section}{2}
+\section{Characters as numbers: \code{ord} and \code{chr}}
+Every character has a number, its \textbf{code point}. Two built-in functions convert between them: \code{ord} turns a character into its number, and \code{chr} turns a number back into a character.
+\Needspace{9\baselineskip}
+\begin{txtcode}
+>>> ord("a")
+97
+>>> chr(97)
+'a'
+>>> ord("A")
+65
+>>> ord("0")
+48
+\end{txtcode}
+The letters \code{a} to \code{z} have consecutive numbers (97 to 122), and so do \code{A} to \code{Z} (65 to 90) and the digits \code{0} to \code{9} (48 to 57). That means you can do arithmetic on letters:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> chr(ord("a") + 3)      # three letters after 'a'
+'d'
+>>> ord("e") - ord("a")    # 'e' is letter number 4, counting from 0
+4
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{A worked example: the Caesar cipher}
+A \textbf{Caesar cipher} is a very old way of hiding a message: shift every letter a fixed number of places along the alphabet, wrapping around at the end. With a shift of 3, \code{a} becomes \code{d}, \code{b} becomes \code{e}, and \code{z} wraps round to \code{c}. Here is the line that shifts one lowercase letter \code{c} by \code{k} places:
+\Needspace{2\baselineskip}
+\begin{pycode}
+chr((ord(c) - ord("a") + k) % 26 + ord("a"))
+\end{pycode}
+It looks dense, so let’s take it apart from the inside out, with \code{c\ =\allowbreak{}\ \textquotedbl{}y\textquotedbl{}} and \code{k\ =\allowbreak{}\ 3}:
+\begin{enumerate}
+\item \code{ord(\allowbreak{}c)\allowbreak{}\ -\ ord(\allowbreak{}\textquotedbl{}a\textquotedbl{})\allowbreak{}} gives the letter’s position in the alphabet, counting from 0: \code{121\ -\ 97\ =\allowbreak{}\ 24}.
+\item \code{+\ k} shifts it: \code{24\ +\ 3\ =\allowbreak{}\ 27}.
+\item \code{\%\ 26} wraps around: there are only 26 letters (positions 0–25), so \code{27\ \%\ 26\ =\allowbreak{}\ 1}.
+\item \code{+\ ord(\allowbreak{}\textquotedbl{}a\textquotedbl{})\allowbreak{}} turns the position back into a code point: \code{1\ +\ 97\ =\allowbreak{}\ 98}.
+\item \code{chr(\allowbreak{}98)\allowbreak{}} is \code{'b'}.
+\end{enumerate}
+So \code{y} shifted by 3 is \code{b}, as expected (y → z → a → b). Because Python’s \code{\%} always gives a non-negative result here (Day 1), a negative \code{k} also works and decodes the message. Typical bugs in this line are a missing step 1 or step 4, or \code{\%\ 25} instead of \code{\%\ 26}.
+\Needspace{10\baselineskip}
+\subsection{Comparing strings}
+When you compare strings with \code{\textless{}\allowbreak{}} or \code{\textgreater{}\allowbreak{}}, or sort them, Python compares them \textbf{character by character, using the code point numbers}. That has two surprising consequences.
+Uppercase letters (65–90) all have smaller numbers than lowercase letters (97–122), so every uppercase letter comes before every lowercase one:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> "Z" < "a"
+True
+>>> sorted(["banana", "Apple", "cherry"])
+['Apple', 'banana', 'cherry']
+>>> sorted(["banana", "apple", "Cherry"])
+['Cherry', 'apple', 'banana']
+\end{txtcode}
+And digits inside strings are compared as characters, not as numbers. \code{\textquotedbl{}10\textquotedbl{}} versus \code{\textquotedbl{}9\textquotedbl{}}: the first characters are \code{'1'} and \code{'9'}, and \code{'1'} is smaller, so \code{\textquotedbl{}10\textquotedbl{}} comes first:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> "10" < "9"
+True
+>>> sorted(["10", "9", "100"])
+['10', '100', '9']
+>>> sorted(["10", "9", "100"], key=int)    # sort by numeric value instead
+['9', '10', '100']
+\end{txtcode}
+If a spec says “sorted numerically” and the code sorts strings without \code{key=\allowbreak{}int}, that’s a bug.
+\Needspace{10\baselineskip}
+\setcounter{section}{3}
+\section{Building text with f-strings}
+\Needspace{10\baselineskip}
+\subsection{What an f-string is}
+An \textbf{f-string} is a string with the letter \code{f} in front of the opening quote. Inside it, anything you put in curly braces \code{\{\}} is evaluated as Python and its value is inserted into the text:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> name, n = "Ana", 42
+>>> f"{name} has {n} items"
+'Ana has 42 items'
+>>> f"next year she'll have {n + 1}"
+"next year she'll have 43"
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Format specifications}
+After the expression, you can add a colon and a \textbf{format specification} that controls how the value is displayed: how many decimals, how wide, aligned which way, in which number base. Specs often require an exact output format (“two decimal places”, “an 8-digit binary number”), so you need to be able to read these.
+\textbf{Decimals:} \code{.2f} means “a float with exactly 2 digits after the point”, rounded:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> x = 3.14159
+>>> f"{x:.2f}"
+'3.14'
+\end{txtcode}
+\textbf{Width and alignment:} a number gives the minimum width. Numbers line up on the right by default. \code{\textless{}\allowbreak{}} aligns left and \code{\textasciicircum{}} centres. The \code{\textbar{}\allowbreak{}} characters below are just there so you can see the spaces:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> f"|{42:5d}|{42:<5d}|{42:^5d}|"
+'|   42|42   | 42  |'
+\end{txtcode}
+(\code{d} means “a whole number in decimal”.)
+\textbf{Zero padding:} a \code{0} before the width pads with zeros instead of spaces:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> f"{42:05d}"
+'00042'
+\end{txtcode}
+\textbf{Other number bases:} \code{x} gives hexadecimal (base 16), \code{X} the same in capitals, \code{b} binary, and \code{\#} adds the \code{0x}/\code{0b} prefix. Combined with zero padding, \code{08b} gives a full 8-digit byte, which you’ll use constantly on Day 5:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> f"{255:x}  {255:X}  {255:#x}  {5:08b}"
+'ff  FF  0xff  00000101'
+\end{txtcode}
+\textbf{Thousands separators:}
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> f"{1234567:,}"
+'1,234,567'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{Two f-string features made for debugging}
+\code{!r} inserts the \textbf{repr} of a value instead of its normal text. The repr is how Python would write the value in code: strings get quotes, and invisible characters like newlines and trailing spaces become visible.
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> s = "Ana \n"
+>>> print(f"[{s}]")
+[Ana
+]
+>>> print(f"[{s!r}]")
+['Ana \n']
+\end{txtcode}
+The second version shows that \code{s} has a trailing space and a newline. The first one hides both.
+\code{=\allowbreak{}} after an expression prints the expression \emph{and} its value, which is the quickest possible debug print:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+>>> i, total = 3, 17
+>>> print(f"{i=} {total=}")
+i=3 total=17
+\end{txtcode}
+\Needspace{10\baselineskip}
+\setcounter{section}{4}
+\section{Building a long string piece by piece}
+When you build a result from many small pieces, for example in an encoder, the clean way is to collect the pieces in a list and \code{join} them once at the end:
+\Needspace{2\baselineskip}
+\begin{pycode}
+parts = []
+for x in items:
+    parts.append(str(x))
+result = ",".join(parts)        # O(n); repeated `s += x` is O(n^2) in the worst case
+\end{pycode}
+Why not just \code{result\ +=\allowbreak{}\ piece} in the loop? Since strings can’t be changed, every \code{+=\allowbreak{}} has to create a brand-new string and copy everything accumulated so far into it. With a thousand pieces, that’s a lot of copying. Appending to a list is cheap, and \code{join} copies each character exactly once. (The “O(n)” notation in the comment is a way of describing how the amount of work grows with the input size. Here it means “proportional to the total length”, as opposed to “proportional to the square of it”.)
+For exam-sized inputs, both versions work fine. The reason to know the pattern is that you’ll see it in well-written code, and it also gets separators right for free: \code{join} never adds a trailing comma.
+\Needspace{10\baselineskip}
+\setcounter{section}{5}
+\section{Walking through a string: three patterns}
+Many text algorithms move through a string position by position, deciding at each step what’s there and how much to consume. There are three patterns you’ll meet again and again, in today’s exercises, the tokenizer on Day 9, and the parsers on Day 8.
+\Needspace{10\baselineskip}
+\subsection{Pattern 1: the index-pointer loop}
+Use this when you need to look ahead, or consume a different number of characters at each step. Here it finds \textbf{runs}, i.e. stretches of the same character repeated, like the \code{\textquotedbl{}aaa\textquotedbl{}} in \code{\textquotedbl{}aaabcc\textquotedbl{}}:
+\Needspace{10\baselineskip}
+\begin{pycode}
+s = "aaabcc"
+i = 0
+while i < len(s):
+    j = i
+    while j < len(s) and s[j] == s[i]:
+        j += 1
+    # s[i:j] is a run of identical characters
+    print(s[i:j], j - i)
+    i = j          # forgetting this = infinite loop
+\end{pycode}
+Output:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+aaa 3
+b 1
+cc 2
+\end{txtcode}
+How it works: \code{i} marks where the current run starts. The inner loop moves \code{j} forward as long as the character at \code{j} is the same as the one at \code{i}. When it stops, \code{s[i:\allowbreak{}j]} is the whole run and \code{j\ -\ i} is its length. Then \code{i\ =\allowbreak{}\ j} jumps straight to the start of the next run.
+Three details make or break this loop:
+\begin{itemize}
+\item \textbf{The order of the checks in \code{j\ \textless{}\allowbreak{}\ len(\allowbreak{}s)\allowbreak{}\ and\ s[j]\ =\allowbreak{}=\allowbreak{}\ s[i]} matters.} \code{and} stops as soon as the first part is false. So when \code{j} reaches the end, \code{s[j]} is never evaluated. If you swapped the two parts, \code{s[j]} would be read with \code{j\ =\allowbreak{}=\allowbreak{}\ len(\allowbreak{}s)\allowbreak{}} and crash with \code{IndexError}.
+\item \textbf{\code{i} must always move forward.} If \code{i\ =\allowbreak{}\ j} is missing, \code{i} never changes and the loop runs forever.
+\item \textbf{It’s a \code{while}, not a \code{for},} because the step size changes: sometimes we jump 3, sometimes 1.
+\end{itemize}
+\Needspace{10\baselineskip}
+\subsection{Pattern 2: building a number from digits}
+When digits are embedded in a larger string, you often read them one at a time and build the number yourself:
+\Needspace{2\baselineskip}
+\begin{pycode}
+num = 0
+for c in "1234":
+    num = num * 10 + int(c)
+\end{pycode}
+Watch \code{num} grow: \code{0} → \code{0*10+1\ =\allowbreak{}\ 1} → \code{1*10+2\ =\allowbreak{}\ 12} → \code{12*10+3\ =\allowbreak{}\ 123} → \code{123*10+4\ =\allowbreak{}\ 1234}. Each new digit shifts the existing number one place to the left (×10) and adds itself on the right. You need this in today’s RLE decoder, where \code{\textquotedbl{}12a\textquotedbl{}} means “twelve a’s”, so the 1 and the 2 must be combined into 12. If you replace 10 with 2, the same loop reads binary.
+\Needspace{10\baselineskip}
+\subsection{Pattern 3: two pointers moving toward each other}
+Some problems are easiest with one position starting at each end, moving toward the middle. A classic example is reversing a list in place by swapping the two ends, then the next two, and so on:
+\Needspace{7\baselineskip}
+\begin{pycode}
+def reverse_in_place(items):
+    lo, hi = 0, len(items) - 1
+    while lo < hi:
+        items[lo], items[hi] = items[hi], items[lo]   # swap the two ends
+        lo += 1
+        hi -= 1
+\end{pycode}
+For \code{[1,\allowbreak{}\ 2,\allowbreak{}\ 3,\allowbreak{}\ 4,\allowbreak{}\ 5]}: swap positions 0 and 4, giving \code{[5,\allowbreak{}\ 2,\allowbreak{}\ 3,\allowbreak{}\ 4,\allowbreak{}\ 1]}. Then swap positions 1 and 3, giving \code{[5,\allowbreak{}\ 4,\allowbreak{}\ 3,\allowbreak{}\ 2,\allowbreak{}\ 1]}. Now \code{lo\ =\allowbreak{}\ hi\ =\allowbreak{}\ 2}, so the loop stops, and the middle item stays where it is. The same shape works for any check that compares a sequence with its mirror image, which is what you’ll need for the palindrome exercise (a palindrome is a word that reads the same backwards, like “level”). The usual bug is starting \code{hi} at \code{len(\allowbreak{}items)\allowbreak{}}, which is one past the last position and crashes.
+\Needspace{10\baselineskip}
+\setcounter{section}{6}
+\section{Special characters inside strings}
+Some characters can’t be typed directly into a string, like a newline or a tab. Python lets you write them with a backslash followed by a letter. This is called an \textbf{escape sequence}:
+\begin{datatable}{}{\small}
+\begin{xltabular}{\linewidth}{@{}Y{0.42}Y{1.58}@{}}
+\rowcolor{primary}
+\thd{You type} & \thd{You get} \\ \hline
+\endhead
+\code{\textquotedbl{}\textbackslash{}n\textquotedbl{}} & a newline (one character) \\
+\code{\textquotedbl{}\textbackslash{}t\textquotedbl{}} & a tab (one character) \\
+\code{\textquotedbl{}\textbackslash{}\textbackslash{}\textquotedbl{}} & one backslash \\
+\code{\textquotedbl{}\textbackslash{}\textquotedbl{}\textquotedbl{}} & a double quote inside a double-quoted string \\
+\hline
+\end{xltabular}
+\end{datatable}
+Even though you typed two characters, each escape is \emph{one} character in the string: \code{len(\allowbreak{}\textquotedbl{}\textbackslash{}n\textquotedbl{})\allowbreak{}} is 1.
+Sometimes you want backslashes to stay as plain backslashes, for example in Windows paths. A \textbf{raw string} has an \code{r} before the quote and turns escapes off: \code{r\textquotedbl{}\textbackslash{}n\textquotedbl{}} is two characters, a backslash and an \code{n}.
+\begin{tipbox}[See the invisible]
+\code{Print(\allowbreak{}repr(\allowbreak{}s)\allowbreak{})\allowbreak{}}.
+\end{tipbox}
+\code{print} \emph{renders} special characters, so a trailing space or a stray \code{\textbackslash{}r} is invisible. \code{repr} shows them:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> s = "done \r\n"
+>>> print(s)
+done
+>>> print(repr(s))
+'done \r\n'
+\end{txtcode}
+Whenever a test says two strings are different and they \emph{look} identical in the output, compare their \code{repr}s. The difference is almost always whitespace.
+\Needspace{10\baselineskip}
+\setcounter{section}{7}
+\section{The toolbox: small techniques the exercises rely on}
+The methods in section 2 are the vocabulary. The exercises also combine them with a few general Python techniques that are worth spelling out, because the reference solutions use them without comment. Try each one in the REPL.
+\Needspace{10\baselineskip}
+\subsection{Repeating a string with \code{*}}
+Multiplying a string by a whole number repeats it:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> "ab" * 3
+'ababab'
+>>> "-" * 10
+'----------'
+>>> "x" * 0
+''
+\end{txtcode}
+This is the quickest way to build “n spaces” (\code{\textquotedbl{}\ \textquotedbl{}\ *\ n}), “n stars” for masking a password (\code{\textquotedbl{}*\textquotedbl{}\ *\ n}), or “this character n times” when decoding run-length encoding (\code{\textquotedbl{}a\textquotedbl{}\ *\ 12}). The number must be an \code{int}. \code{\textquotedbl{}a\textquotedbl{}\ *\ \textquotedbl{}3\textquotedbl{}} is a \code{TypeError}, so convert first: \code{\textquotedbl{}a\textquotedbl{}\ *\ int(\allowbreak{}\textquotedbl{}3\textquotedbl{})\allowbreak{}}.
+\Needspace{10\baselineskip}
+\subsection{Is this character a lowercase letter? Comparing characters}
+Since characters are compared by their code point (section 3), and the letters \code{a} to \code{z} have consecutive code points, “is \code{c} a lowercase ASCII letter?” can be written as a range check, chained the same way as with numbers (Day 1, section 8):
+\Needspace{8\baselineskip}
+\begin{txtcode}
+>>> c = "q"
+>>> "a" <= c <= "z"
+True
+>>> "A" <= "Q" <= "Z"
+True
+>>> "a" <= "é" <= "z"         # é is outside the plain a–z range
+False
+\end{txtcode}
+That last line is why this check is often preferred over \code{c.isalpha(\allowbreak{})\allowbreak{}} when a spec says “ASCII letters only”: \code{\textquotedbl{}é\textquotedbl{}.isalpha(\allowbreak{})\allowbreak{}} is \code{True}.
+\Needspace{10\baselineskip}
+\subsection{Getting the position too: \code{enumerate} on words}
+Day 1 introduced \code{enumerate}, which gives you \code{(\allowbreak{}position,\allowbreak{}\ item)\allowbreak{}} pairs. It’s especially useful when the \textbf{first} item is treated differently from the others, like in title case, where a “minor word” such as \code{\textquotedbl{}of\textquotedbl{}} is still capitalised when it starts the title:
+\Needspace{7\baselineskip}
+\begin{pycode}
+for i, w in enumerate(s.split(" ")):
+    if i == 0:
+        ...      # the first word
+    else:
+        ...      # every other word
+\end{pycode}
+Or the reverse question, “is this the first character?”, in camelCase-to-snake\_case conversion: an uppercase letter gets an underscore in front of it, \emph{except} at position 0.
+\Needspace{10\baselineskip}
+\subsection{Unpacking \code{partition}, and the \code{\_} placeholder}
+\code{partition} always returns exactly three values (section 2), so you can unpack them straight into three names. You usually don’t need the separator itself, so it goes into \code{\_}, the conventional “I don’t care” name:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> key, _, value = "b=x=y".partition("=")
+>>> key, value
+('b', 'x=y')
+>>> key, _, value = "c".partition("=")      # no "=" at all
+>>> key, value
+('c', '')
+\end{txtcode}
+Notice how this handles two awkward cases for free: the value can contain \code{=\allowbreak{}} (only the first one splits), and a missing \code{=\allowbreak{}} gives an empty value instead of an error. \code{\textquotedbl{}c\textquotedbl{}.split(\allowbreak{}\textquotedbl{}=\allowbreak{}\textquotedbl{})\allowbreak{}} would give \code{['c']}, and unpacking that into two names would crash.
+\Needspace{10\baselineskip}
+\subsection{Building a list of tuples}
+When a function must return pairs, like \code{[(\allowbreak{}\textquotedbl{}a\textquotedbl{},\allowbreak{}\ \textquotedbl{}1\textquotedbl{})\allowbreak{},\allowbreak{}\ (\allowbreak{}\textquotedbl{}b\textquotedbl{},\allowbreak{}\ \textquotedbl{}x=\allowbreak{}y\textquotedbl{})\allowbreak{}]}, you build it with \code{append} and a tuple:
+\Needspace{2\baselineskip}
+\begin{pycode}
+out.append((key, value))
+\end{pycode}
+The \textbf{double} parentheses matter. The outer ones belong to the \code{append(\allowbreak{}...)\allowbreak{}} call, the inner ones create the tuple. \code{out.append(\allowbreak{}key,\allowbreak{}\ value)\allowbreak{}} would be an error, because \code{append} takes exactly one item, and here we want that one item to be a pair.
+\Needspace{10\baselineskip}
+\subsection{Working character by character: a list of characters, then \code{join}}
+Strings can’t be changed (section 1), so to \emph{build} a string bit by bit, collect the pieces in a list and \code{join} them at the end (section 5). The same trick works for reversing a word you’re collecting:
+\Needspace{2\baselineskip}
+\begin{pycode}
+word = []                  # characters of the current word
+word.append("c"); word.append("a"); word.append("t")
+"".join(reversed(word))    # 'tac'
+\end{pycode}
+\code{reversed(\allowbreak{}word)\allowbreak{}} walks the list backwards (Day 1, section 8) and \code{\textquotedbl{}\textquotedbl{}.join(\allowbreak{}...)\allowbreak{}} glues the characters with nothing in between. \code{\textquotedbl{}\textquotedbl{}.join(\allowbreak{}word[:\allowbreak{}:\allowbreak{}-1])\allowbreak{}} does the same.
+\code{sorted} also works directly on a string. It treats the string as a sequence of characters and returns a \textbf{list} of them, in order:
+\Needspace{7\baselineskip}
+\begin{txtcode}
+>>> sorted("listen")
+['e', 'i', 'l', 'n', 's', 't']
+>>> sorted("silent") == sorted("listen")      # same letters, same counts: anagrams
+True
+>>> "".join(sorted("listen"))                 # glue back if you need a string
+'eilnst'
+\end{txtcode}
+\Needspace{10\baselineskip}
+\subsection{The first character, safely: \code{s[:\allowbreak{}1]} vs \code{s[0]}}
+\code{s[0]} raises \code{IndexError} on an empty string. The slice \code{s[:\allowbreak{}1]} gives the first character, or \code{\textquotedbl{}\textquotedbl{}} if there is none, and never fails (slices never raise, Day 1). So “capitalise the first letter and lowercase the rest” can be written safely as:
+\Needspace{2\baselineskip}
+\begin{pycode}
+w[:1].upper() + w[1:].lower()      # "hELLO" -> "Hello", "" -> ""
+\end{pycode}
+Similarly, \code{items[:\allowbreak{}-1]} is “everything except the last item” and \code{items[-1]} is “the last item”: useful when the last element must be treated differently, like the last line of a justified paragraph, or the last word, which gets no gap after it.
+\Needspace{10\baselineskip}
+\subsection{Checking every position: how many places can a substring start?}
+To find every (possibly overlapping) place where \code{sub} occurs in \code{s}, look at each possible starting position \code{i} and compare the slice \code{s[i:\allowbreak{}i\ +\ len(\allowbreak{}sub)\allowbreak{}]} with \code{sub}. The question is which \code{i}s to try. The last possible start is the one where \code{sub} ends exactly at the end of \code{s}: \code{i\ =\allowbreak{}\ len(\allowbreak{}s)\allowbreak{}\ -\ len(\allowbreak{}sub)\allowbreak{}}. Since \code{range} stops \emph{before} its end, the loop is:
+\Needspace{2\baselineskip}
+\begin{pycode}
+for i in range(len(s) - len(sub) + 1):
+    if s[i:i + len(sub)] == sub:
+        ...
+\end{pycode}
+Check it on \code{s\ =\allowbreak{}\ \textquotedbl{}aaaa\textquotedbl{}}, \code{sub\ =\allowbreak{}\ \textquotedbl{}aa\textquotedbl{}}: \code{range(\allowbreak{}4\ -\ 2\ +\ 1)\allowbreak{}} is 0, 1, 2, and the slices are \code{s[0:\allowbreak{}2]}, \code{s[1:\allowbreak{}3]}, \code{s[2:\allowbreak{}4]}, all \code{\textquotedbl{}aa\textquotedbl{}}. Three matches. Forgetting the \code{+\ 1} misses a match at the very end, the usual off-by-one.
+Combined with the counting pattern from Day 1 (\code{sum(\allowbreak{}1\ for\ ...\ if\ ...)\allowbreak{}}), the whole count fits on one line.
+\Needspace{10\baselineskip}
+\subsection{Shrinking until it fits}
+Sometimes the simplest approach is to start with a candidate that’s too big and cut it down until it works. For the longest common prefix of several words, start with the whole first word as the candidate and drop its last character (\code{prefix\ =\allowbreak{}\ prefix[:\allowbreak{}-1]}) while another word doesn’t start with it:
+\Needspace{2\baselineskip}
+\begin{txtcode}
+words: "flower", "flow", "flight"
+prefix "flower" -> "flow" starts with it? no -> "flowe" -> no -> "flow" -> yes
+then "flight": "flow" -> no -> "flo" -> no -> "fl" -> yes
+answer: "fl"
+\end{txtcode}
+The loop always ends, because the empty string \code{\textquotedbl{}\textquotedbl{}} is a prefix of every string (\code{\textquotedbl{}abc\textquotedbl{}.startswith(\allowbreak{}\textquotedbl{}\textquotedbl{})\allowbreak{}} is \code{True}).
+\Needspace{10\baselineskip}
+\subsection{Sharing out spaces evenly with \code{divmod}}
+Full justification has to spread \code{spaces} extra spaces over \code{gaps} gaps as evenly as possible, with the leftmost gaps getting one more when it doesn’t divide evenly. That’s exactly what \code{divmod} answers (Day 1, section 8):
+\Needspace{2\baselineskip}
+\begin{pycode}
+base, extra = divmod(spaces, gaps)
+\end{pycode}
+\code{base} is how many spaces \emph{every} gap gets, and \code{extra} is how many are left over. Those leftovers go one each to the first \code{extra} gaps. Example: 7 spaces over 3 gaps.
+\Needspace{2\baselineskip}
+\begin{txtcode}
+divmod(7, 3) = (2, 1)  ->  every gap gets 2, and 1 is left over
+gap 0: 2 + 1 = 3       (i < extra, so it gets one more)
+gap 1: 2
+gap 2: 2               total 3 + 2 + 2 = 7
+\end{txtcode}
+In code, “one more if \code{i\ \textless{}\allowbreak{}\ extra}” is a conditional expression: \code{base\ +\ (\allowbreak{}1\ if\ i\ \textless{}\allowbreak{}\ extra\ else\ 0)\allowbreak{}}. The parentheses are needed. Without them Python would read it as \code{(\allowbreak{}base\ +\ 1)\allowbreak{}\ if\ i\ \textless{}\allowbreak{}\ extra\ else\ 0}.
+\Needspace{10\baselineskip}
+\subsection{Default values that are tuples}
+A function can have a parameter with a default (Day 1, section 5), and that default can be a tuple:
+\Needspace{2\baselineskip}
+\begin{pycode}
+def title_case(s, minor_words=("a", "an", "the", "of")):
+    ...
+    if w in minor_words: ...
+\end{pycode}
+\code{in} works on tuples just like on lists. Why a tuple and not a list? Because a tuple can’t be changed, it’s a safe default value. Day 4 explains the bug you get with a list as a default.
+\Needspace{22\baselineskip}
+\unnumberedsection{Exercises}
+\begin{practicebox}
+Work in \code{exercises/\allowbreak{}}. Read each docstring as the spec. Run \code{python\ run.py\ 2} after every change; peek at \code{solutions/\allowbreak{}} only after 15 minutes stuck.
+\end{practicebox}
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{1.33}Y{0.58}Y{1.09}@{}}
+\rowcolor{primary}
+\thd{File} & \thd{Type} & \thd{What} \\ \hline
+\endhead
+\code{exercises/\allowbreak{}ex01\_\allowbreak{}basics.\allowbreak{}py} & implement & palindrome, Caesar cipher, title case, overlapping count, ... \\
+\code{exercises/\allowbreak{}ex02\_\allowbreak{}rle.\allowbreak{}py} & implement & run-length encode/decode (multi-digit counts) \\
+\code{exercises/\allowbreak{}ex03\_\allowbreak{}text\_\allowbreak{}format.\allowbreak{}py} & implement & greedy word-wrap and full justification \\
+\code{exercises/\allowbreak{}ex04\_\allowbreak{}fix\_\allowbreak{}me.\allowbreak{}py} & \textbf{debug} & 7 string functions, one bug each \\
+\hline
+\end{xltabular}
+\end{datatable}
+Some background for each:
+\begin{itemize}
+\item \textbf{ex01} practises the methods from section 2 and the \code{ord}/\code{chr} arithmetic from section 3. Several of the functions are small versions of things you’ll see in bigger programs, like parsing \code{\textquotedbl{}a=\allowbreak{}1;\allowbreak{}b=\allowbreak{}2\textquotedbl{}} into key/value pairs.
+\item \textbf{ex02} is \textbf{run-length encoding (RLE)}, one of the simplest compression methods: replace each run of repeated characters with its length and the character. \code{\textquotedbl{}aaabcc\textquotedbl{}} becomes \code{\textquotedbl{}3a1b2c\textquotedbl{}}. Encoding is pattern 1 from section 6. Decoding is pattern 2, because counts can have several digits: \code{\textquotedbl{}12a\textquotedbl{}} means twelve a’s, not “1” then “2a”.
+\item \textbf{ex03} is \textbf{word wrapping}: split a text into lines of at most \code{width} characters, putting as many words on each line as fit. “Greedy” means you keep adding words to the current line until the next one doesn’t fit, then start a new line. \textbf{Justification} then adds extra spaces between the words so every line is exactly \code{width} characters long, as in a newspaper column. Both are good practice in careful counting: does the space between two words count toward the width? (It does.)
+\item \textbf{ex04} is the exam skill applied to strings: seven small functions, each with exactly one planted bug, most of them from the traps in this document.
+\end{itemize}
+Which tools each function needs (section numbers in brackets; “D1” means Day 1):
+\begin{datatable}{}{\footnotesize}
+\begin{xltabular}{\linewidth}{@{}Y{0.44}Y{1.56}@{}}
+\rowcolor{primary}
+\thd{Function} & \thd{Tools} \\ \hline
+\endhead
+\code{is\_\allowbreak{}palindrome} & \code{isalnum}, \code{lower} (2), a comprehension (D1), \code{[\allowbreak{}:\allowbreak{}:\allowbreak{}-1]\allowbreak{}} \\
+\code{caesar} & \code{ord}/\code{chr} and \code{\%} (3), \code{\textquotedbl{}a\textquotedbl{}\ \textless{}\allowbreak{}=\allowbreak{}\ c\ \textless{}\allowbreak{}=\allowbreak{}\ \textquotedbl{}z\textquotedbl{}} (8), building with a list + \code{join} (5) \\
+\code{title\_\allowbreak{}case} & \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}}/\code{join} (2), \code{enumerate} (8), \code{w[\allowbreak{}:\allowbreak{}1]\allowbreak{}.\allowbreak{}upper(\allowbreak{})\allowbreak{}} (8), \code{in} on a tuple (8) \\
+\code{count\_\allowbreak{}overlapping} & the “every starting position” loop (8), \code{sum(\allowbreak{}1\ for\ .\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{}} (D1) \\
+\code{reverse\_\allowbreak{}each\_\allowbreak{}word} & \code{isspace} (2), list of characters + \code{\textquotedbl{}\textquotedbl{}.\allowbreak{}join(\allowbreak{}reversed(\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})\allowbreak{})\allowbreak{}} (8) \\
+\code{longest\_\allowbreak{}common\_\allowbreak{}prefix} & \code{startswith} (2), the “shrink until it fits” loop (8) \\
+\code{parse\_\allowbreak{}key\_\allowbreak{}values} & \code{split(\allowbreak{}\textquotedbl{};\allowbreak{}\textquotedbl{})\allowbreak{}}, \code{strip} (2), \code{partition} + \code{\_\allowbreak{}} (8), list of tuples (8), \code{continue} (D1) \\
+\code{rle\_\allowbreak{}encode} & pattern 1, the index-pointer loop (6), f-strings (4) \\
+\code{rle\_\allowbreak{}decode} & pattern 2, collecting digits (6), \code{isdigit} (2), \code{\textquotedbl{}a\textquotedbl{}\ *\ n} (8), \code{raise\ ValueError} (D1) \\
+\code{wrap} & \code{split(\allowbreak{})\allowbreak{}} (2), counting lengths: \code{len(\allowbreak{}current)\allowbreak{}\ +\ 1\ +\ len(\allowbreak{}word)\allowbreak{}} \\
+\code{justify\_\allowbreak{}line} & \code{ljust} (2), \code{divmod} for spreading spaces (8), \code{enumerate}, \code{words[\allowbreak{}:\allowbreak{}-1]\allowbreak{}} (8) \\
+\code{justify} & \code{wrap}, \code{justify\_\allowbreak{}line}, \code{lines[\allowbreak{}:\allowbreak{}-1]\allowbreak{}} and \code{lines[\allowbreak{}-1]\allowbreak{}} (8) \\
+\hline
+\end{xltabular}
+\end{datatable}
+\Needspace{2\baselineskip}
+\begin{shcode}
+python run.py 2
+\end{shcode}
+\Needspace{22\baselineskip}
+\unnumberedsection{End-of-day checklist}
+\begin{checklistbox}[Tick every box]
+\begin{checklist}
+\item I know the difference between \code{split(\allowbreak{})\allowbreak{}} and \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}}.
+\item I know \code{strip(\allowbreak{}\textquotedbl{}abc\textquotedbl{})\allowbreak{}} strips a \textbf{set of characters}, and \code{removeprefix} exists.
+\item I can write a \code{while\ i\ \textless{}\allowbreak{}\ len(\allowbreak{}s)\allowbreak{}} scanning loop without an infinite loop.
+\item I use \code{repr(\allowbreak{})\allowbreak{}} / \code{f\textquotedbl{}\{x!r\}\textquotedbl{}} when debugging strings.
+\end{checklist}
+\scoreline
+\end{checklistbox}
+\begin{examlensbox}
+\begin{itemize}
+\item Expect edge cases: empty strings, repeated separators, mixed case, and multi-digit run lengths.
+\item \code{split(\allowbreak{})\allowbreak{}} versus \code{split(\allowbreak{}\textquotedbl{}\ \textquotedbl{})\allowbreak{}}, \code{strip} as a character set, and off-by-one slices are planted often.
+\item When the spec says bytes, compare \code{len(\allowbreak{}s)\allowbreak{}} with \code{len(\allowbreak{}s.encode(\allowbreak{})\allowbreak{})\allowbreak{}}; they are not the same.
+\end{itemize}
+\end{examlensbox}
+\bugjournalifspace
+\end{document}
